@@ -285,7 +285,67 @@ button {
 .summary-line.wrong strong { color: var(--red); }
 .summary-line.dontknow strong { color: var(--navy); }
 
+/* Zertifikats-Tabs */
+.cert-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.cert-tab {
+  flex: 1;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1.5px solid var(--border);
+  background: white;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.cert-tab.active {
+  border-color: var(--navy);
+  background: var(--navy);
+  color: white;
+}
+
+/* Zertifikats-Badges & Labels */
+.cert-label {
+  margin: 12px 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.cert-src { color: var(--accent); }
+.cert-lrc { color: var(--green); }
+
+.cert-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 5px;
+  text-transform: uppercase;
+}
+
+.cert-badge.cert-src { background: #dceefb; color: var(--accent); }
+.cert-badge.cert-lrc { background: var(--green-bg); color: var(--green); }
+
+/* Quiz-Header Anpassung */
+.quiz-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Session-Stats Farben */
+.stat-correct { color: var(--green); font-weight: 600; }
+.stat-wrong   { color: var(--red);   font-weight: 600; }
+.stat-dk      { color: var(--navy);  font-weight: 600; }
+
 @media (min-width: 480px) {
-  .quiz-header { flex-direction: row; align-items: center; justify-content: space-between; }
-  .progress-bar { display: none; }
+  .progress-bar { height: 4px; }
 }
