@@ -58,7 +58,9 @@ function questionsForCats(catKeys) {
 function certCats(cert) {
   return Object.keys(CATEGORIES).filter(k => CATEGORIES[k].cert === cert);
 }
-
+function activeCats() {
+  return state.selectedCerts.flatMap(cert => certCats(cert));
+}
 function statsFor(catKeys) {
   const qs = questionsForCats(catKeys);
   const mastered = qs.filter(q => !isUnsicher(q.id)).length;
@@ -67,8 +69,8 @@ function statsFor(catKeys) {
 
 /* ---------- App State ---------- */
 const state = {
-  screen: 'select',       // 'select' | 'quiz' | 'summary'
-  certFilter: 'SRC',      // 'SRC' | 'LRC' | 'BOTH'
+  screen: 'select',
+  selectedCerts: ['SRC'],
   selectedCats: certCats('SRC'),
   filterMode: 'unsicher', // 'unsicher' | 'alle'
   queue: [],
@@ -90,11 +92,19 @@ function render() {
 
 /* ---------- SELECT ---------- */
 function renderSelect() {
-  const srcCats = certCats('SRC');
-  const lrcCats = certCats('LRC');
-  const srcStats = statsFor(srcCats);
-  const lrcStats = statsFor(lrcCats);
-  const allStats = statsFor([...srcCats, ...lrcCats]);
+	const srcCats = certCats('SRC');
+	const lrcCats = certCats('LRC');
+	const ubiCats = certCats('UBI');
+
+	const srcStats = statsFor(srcCats);
+	const lrcStats = statsFor(lrcCats);
+	const ubiStats = statsFor(ubiCats);
+
+	const allStats = statsFor([
+	  ...srcCats,
+	  ...lrcCats,
+	  ...ubiCats
+	]);
 
   function catRows(cats) {
     return cats.map(key => {
@@ -120,25 +130,54 @@ function renderSelect() {
       <h1>Funkzeugnis Trainer</h1>
       <p class="sub">Gesamt: ${allStats.mastered}/${allStats.total} sicher &nbsp;·&nbsp;
         SRC ${srcStats.mastered}/${srcStats.total} &nbsp;·&nbsp;
-        LRC ${lrcStats.mastered}/${lrcStats.total}</p>
+        LRC ${lrcStats.mastered}/${lrcStats.total} &nbsp;·&nbsp;
+		UBI ${ubiStats.mastered}/${ubiStats.total}</p>
     </header>
 
     <section class="panel">
       <h2>Zertifikat</h2>
-      <div class="cert-tabs">
-        <button class="cert-tab ${state.certFilter==='SRC'?'active':''}" data-cert="SRC">SRC</button>
-        <button class="cert-tab ${state.certFilter==='LRC'?'active':''}" data-cert="LRC">LRC</button>
-        <button class="cert-tab ${state.certFilter==='BOTH'?'active':''}" data-cert="BOTH">Beide</button>
-      </div>
+		<div class="filter-toggle">
+
+		  <label class="radio-row">
+			<input type="checkbox"
+				   data-cert="SRC"
+				   ${state.selectedCerts.includes('SRC') ? 'checked' : ''}>
+			SRC
+		  </label>
+
+		  <label class="radio-row">
+			<input type="checkbox"
+				   data-cert="LRC"
+				   ${state.selectedCerts.includes('LRC') ? 'checked' : ''}>
+			LRC
+		  </label>
+
+		  <label class="radio-row">
+			<input type="checkbox"
+				   data-cert="UBI"
+				   ${state.selectedCerts.includes('UBI') ? 'checked' : ''}>
+			UBI
+		  </label>
+
+		</div>
     </section>
 
     <section class="panel">
       <h2>Kategorien</h2>
-      ${state.certFilter !== 'LRC' ? `
-        ${state.certFilter === 'BOTH' ? '<p class="cert-label cert-src">SRC</p>' : ''}
-        <div class="cat-list">${catRows(srcCats)}</div>` : ''}
-      ${state.certFilter !== 'SRC' ? `
-        ${state.certFilter === 'BOTH' ? '<p class="cert-label cert-lrc">LRC</p>' : ''}
+		${state.selectedCerts.includes('SRC') ? `
+		<p class="cert-label cert-src">SRC</p>
+		<div class="cat-list">${catRows(srcCats)}</div>
+		` : ''}
+
+		${state.selectedCerts.includes('LRC') ? `
+		<p class="cert-label cert-lrc">LRC</p>
+		<div class="cat-list">${catRows(lrcCats)}</div>
+		` : ''}
+
+		${state.selectedCerts.includes('UBI') ? `
+		<p class="cert-label cert-ubi">UBI</p>
+		<div class="cat-list">${catRows(ubiCats)}</div>
+		` : ''}
         <div class="cat-list">${catRows(lrcCats)}</div>` : ''}
       <div class="cat-actions">
         <button id="selAll" class="btn-link">Alle auswählen</button>
@@ -168,16 +207,34 @@ function renderSelect() {
   `;
 
   // Zertifikat-Tabs
-  root.querySelectorAll('.cert-tab').forEach(btn => {
-    btn.addEventListener('click', () => {
-      state.certFilter = btn.getAttribute('data-cert');
-      if (state.certFilter === 'SRC') state.selectedCats = certCats('SRC');
-      else if (state.certFilter === 'LRC') state.selectedCats = certCats('LRC');
-      else state.selectedCats = [...certCats('SRC'), ...certCats('LRC')];
-      render();
-    });
-  });
+	root.querySelectorAll('input[data-cert]').forEach(cb => {
 
+	  cb.addEventListener('change', e => {
+
+		const cert = e.target.dataset.cert;
+
+		if (e.target.checked) {
+
+		  if (!state.selectedCerts.includes(cert)) {
+			state.selectedCerts.push(cert);
+		  }
+
+		} else {
+
+		  state.selectedCerts =
+			state.selectedCerts.filter(c => c !== cert);
+
+		  if (state.selectedCerts.length === 0) {
+			state.selectedCerts = ['SRC'];
+		  }
+		}
+
+		state.selectedCats = activeCats();
+
+		render();
+	  });
+
+	});
   // Kategorie-Checkboxen
   root.querySelectorAll('input[data-cat]').forEach(cb => {
     cb.addEventListener('change', e => {
@@ -197,13 +254,10 @@ function renderSelect() {
   });
 
   // Alle / Keine
-  document.getElementById('selAll').addEventListener('click', () => {
-    const visible = state.certFilter === 'SRC' ? certCats('SRC')
-                  : state.certFilter === 'LRC' ? certCats('LRC')
-                  : [...certCats('SRC'), ...certCats('LRC')];
-    state.selectedCats = visible;
-    render();
-  });
+	document.getElementById('selAll').addEventListener('click', () => {
+	  state.selectedCats = activeCats();
+	  render();
+	});
   document.getElementById('selNone').addEventListener('click', () => {
     state.selectedCats = []; render();
   });

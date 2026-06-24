@@ -17,6 +17,12 @@ const CATEGORIES = {
   LRC_IV:  { cert: 'LRC', title: 'IV. GW/KW-Sprechfunk & Funkwellenausbreitung' },
   LRC_V:   { cert: 'LRC', title: 'V. Betriebsverfahren' },
   LRC_VI:  { cert: 'LRC', title: 'VI. Inmarsat' },
+	// UBI mit ChatGPT
+	UBI_I:   { cert:'UBI', title:'I. Binnenschifffahrtsfunk' },
+	UBI_II:  { cert:'UBI', title:'II. Funkeinrichtungen & Schiffsfunkstellen' },
+	UBI_III: { cert:'UBI', title:'III. Verkehrskreise' },
+	UBI_IV:  { cert:'UBI', title:'IV. Sprechfunk' },
+	UBI_V:   { cert:'UBI', title:'V. Betriebsverfahren & Rangfolgen' },
 };
 
 const QUESTIONS = [
