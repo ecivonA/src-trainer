@@ -115,14 +115,26 @@ html, body {
 .cat-bar {
   grid-area: bar;
   display: block;
-  height: 4px;
+  height: 5px;
   background: var(--border);
   border-radius: 3px;
   overflow: hidden;
+  position: relative;
+}
+.cat-bar-half {
+  position: absolute;
+  top: 0; left: 0;
+  height: 100%;
+  background: #f59e0b;
+  border-radius: 3px;
 }
 .cat-bar-fill {
+  position: absolute;
+  top: 0; left: 0;
   height: 100%;
   background: var(--green);
+  border-radius: 3px;
+  display: block;
 }
 
 .cat-actions {

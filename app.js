@@ -62,7 +62,8 @@ function certCats(cert) {
 function statsFor(catKeys) {
   const qs = questionsForCats(catKeys);
   const mastered = qs.filter(q => !isUnsicher(q.id)).length;
-  return { total: qs.length, mastered, unsicher: qs.length - mastered };
+  const half = qs.filter(q => getEntry(q.id).streak === 1).length;
+  return { total: qs.length, mastered, half, unsicher: qs.length - mastered };
 }
 
 /* ---------- App State ---------- */
@@ -103,13 +104,17 @@ function renderSelect() {
       const cat = CATEGORIES[key];
       const s = statsFor([key]);
       const checked = state.selectedCats.includes(key) ? 'checked' : '';
-      const pct = s.total ? Math.round(s.mastered / s.total * 100) : 0;
+      const pctMastered = s.total ? Math.round(s.mastered / s.total * 100) : 0;
+      const pctSeen     = s.total ? Math.round((s.mastered + s.half) / s.total * 100) : 0;
       return `
         <label class="cat-row">
           <input type="checkbox" data-cat="${key}" ${checked} />
           <span class="cat-title">${escapeHtml(cat.title)}</span>
           <span class="cat-meta">${s.mastered}/${s.total}</span>
-          <span class="cat-bar"><span class="cat-bar-fill" style="width:${pct}%"></span></span>
+          <span class="cat-bar">
+            <span class="cat-bar-half" style="width:${pctSeen}%"></span>
+            <span class="cat-bar-fill" style="width:${pctMastered}%"></span>
+          </span>
         </label>`;
     }).join('');
   }
