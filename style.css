@@ -319,6 +319,7 @@ button {
 
 .cert-src { color: var(--accent); }
 .cert-lrc { color: var(--green); }
+.cert-ubi { color: #92400e; }
 
 .cert-badge {
   font-size: 11px;
@@ -330,6 +331,7 @@ button {
 
 .cert-badge.cert-src { background: #dceefb; color: var(--accent); }
 .cert-badge.cert-lrc { background: var(--green-bg); color: var(--green); }
+.cert-badge.cert-ubi { background: #fef3c7; color: #92400e; }
 
 /* Quiz-Header Anpassung */
 .quiz-header {

@@ -68,7 +68,7 @@ function statsFor(catKeys) {
 /* ---------- App State ---------- */
 const state = {
   screen: 'select',       // 'select' | 'quiz' | 'summary'
-  certFilter: 'SRC',      // 'SRC' | 'LRC' | 'BOTH'
+  certFilter: 'SRC',      // 'SRC' | 'LRC' | 'UBI' | 'ALL'
   selectedCats: certCats('SRC'),
   filterMode: 'unsicher', // 'unsicher' | 'alle'
   queue: [],
@@ -92,9 +92,11 @@ function render() {
 function renderSelect() {
   const srcCats = certCats('SRC');
   const lrcCats = certCats('LRC');
+  const ubiCats = certCats('UBI');
   const srcStats = statsFor(srcCats);
   const lrcStats = statsFor(lrcCats);
-  const allStats = statsFor([...srcCats, ...lrcCats]);
+  const ubiStats = statsFor(ubiCats);
+  const allStats = statsFor([...srcCats, ...lrcCats, ...ubiCats]);
 
   function catRows(cats) {
     return cats.map(key => {
@@ -120,7 +122,8 @@ function renderSelect() {
       <h1>Funkzeugnis Trainer</h1>
       <p class="sub">Gesamt: ${allStats.mastered}/${allStats.total} sicher &nbsp;·&nbsp;
         SRC ${srcStats.mastered}/${srcStats.total} &nbsp;·&nbsp;
-        LRC ${lrcStats.mastered}/${lrcStats.total}</p>
+        LRC ${lrcStats.mastered}/${lrcStats.total} &nbsp;·&nbsp;
+        UBI ${ubiStats.mastered}/${ubiStats.total}</p>
     </header>
 
     <section class="panel">
@@ -128,18 +131,22 @@ function renderSelect() {
       <div class="cert-tabs">
         <button class="cert-tab ${state.certFilter==='SRC'?'active':''}" data-cert="SRC">SRC</button>
         <button class="cert-tab ${state.certFilter==='LRC'?'active':''}" data-cert="LRC">LRC</button>
-        <button class="cert-tab ${state.certFilter==='BOTH'?'active':''}" data-cert="BOTH">Beide</button>
+        <button class="cert-tab ${state.certFilter==='UBI'?'active':''}" data-cert="UBI">UBI</button>
+        <button class="cert-tab ${state.certFilter==='ALL'?'active':''}" data-cert="ALL">Alle</button>
       </div>
     </section>
 
     <section class="panel">
       <h2>Kategorien</h2>
-      ${state.certFilter !== 'LRC' ? `
-        ${state.certFilter === 'BOTH' ? '<p class="cert-label cert-src">SRC</p>' : ''}
+      ${(state.certFilter === 'SRC' || state.certFilter === 'ALL') ? `
+        ${state.certFilter === 'ALL' ? '<p class="cert-label cert-src">SRC</p>' : ''}
         <div class="cat-list">${catRows(srcCats)}</div>` : ''}
-      ${state.certFilter !== 'SRC' ? `
-        ${state.certFilter === 'BOTH' ? '<p class="cert-label cert-lrc">LRC</p>' : ''}
+      ${(state.certFilter === 'LRC' || state.certFilter === 'ALL') ? `
+        ${state.certFilter === 'ALL' ? '<p class="cert-label cert-lrc">LRC</p>' : ''}
         <div class="cat-list">${catRows(lrcCats)}</div>` : ''}
+      ${(state.certFilter === 'UBI' || state.certFilter === 'ALL') ? `
+        ${state.certFilter === 'ALL' ? '<p class="cert-label cert-ubi">UBI</p>' : ''}
+        <div class="cat-list">${catRows(ubiCats)}</div>` : ''}
       <div class="cat-actions">
         <button id="selAll" class="btn-link">Alle auswählen</button>
         <button id="selNone" class="btn-link">Keine</button>
@@ -173,7 +180,8 @@ function renderSelect() {
       state.certFilter = btn.getAttribute('data-cert');
       if (state.certFilter === 'SRC') state.selectedCats = certCats('SRC');
       else if (state.certFilter === 'LRC') state.selectedCats = certCats('LRC');
-      else state.selectedCats = [...certCats('SRC'), ...certCats('LRC')];
+      else if (state.certFilter === 'UBI') state.selectedCats = certCats('UBI');
+      else state.selectedCats = [...certCats('SRC'), ...certCats('LRC'), ...certCats('UBI')];
       render();
     });
   });
@@ -200,7 +208,8 @@ function renderSelect() {
   document.getElementById('selAll').addEventListener('click', () => {
     const visible = state.certFilter === 'SRC' ? certCats('SRC')
                   : state.certFilter === 'LRC' ? certCats('LRC')
-                  : [...certCats('SRC'), ...certCats('LRC')];
+                  : state.certFilter === 'UBI' ? certCats('UBI')
+                  : [...certCats('SRC'), ...certCats('LRC'), ...certCats('UBI')];
     state.selectedCats = visible;
     render();
   });
