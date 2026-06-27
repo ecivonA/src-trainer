@@ -136,7 +136,7 @@ const EXPLANATIONS = {
 1204:'Ein treibender Baumstamm ist eine Gefahr für die Schifffahrt – daher ist eine Sicherheitsmeldung (SECURITE) zu verbreiten.',
 1205:'Eine vertriebene Tonne ist eine falsch positionierte Schifffahrtsmarkierung und damit eine Gefahr – daher ist eine Sicherheitsmeldung (SECURITE) zu verbreiten.',
 1206:'Der Schiffsführer trägt die Gesamtverantwortung für das Schiff und entscheidet daher über die Art der auszusendenden Sprechfunkmeldung.',
-};
+
 
 // ── SRC I: Grundlagen ─────────────────────────────────────────────────────
 1:'Mobiler Seefunkdienst verbindet Küsten- und Seefunkstellen miteinander – nicht nur Schiffe untereinander und nicht nur tragbare Geräte.',
