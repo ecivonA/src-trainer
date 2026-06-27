@@ -363,3 +363,30 @@ button {
 @media (min-width: 480px) {
   .progress-bar { height: 4px; }
 }
+
+/* ── Erklärungsbox ────────────────────────────────────────────────────── */
+.explanation-panel {
+  border-left: 4px solid #3b82f6;
+  background: #eff6ff;
+  padding: 14px 16px;
+  margin-top: 0;
+  animation: fadeIn 0.25s ease;
+}
+.explanation-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1d4ed8;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 6px;
+}
+.explanation-text {
+  font-size: 14px;
+  line-height: 1.55;
+  color: #1e3a5f;
+  margin: 0;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

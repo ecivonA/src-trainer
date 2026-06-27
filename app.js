@@ -270,6 +270,14 @@ function renderQuiz() {
     return `<button class="${cls}" data-idx="${i}" ${state.answered?'disabled':''}>${escapeHtml(opt)}</button>`;
   }).join('');
 
+  const explanation = (typeof EXPLANATIONS !== 'undefined') ? (EXPLANATIONS[q.id] || null) : null;
+  const explHtml = state.answered && explanation
+    ? `<section class="panel explanation-panel">
+        <p class="explanation-label">💡 Warum ist das richtig?</p>
+        <p class="explanation-text">${escapeHtml(explanation)}</p>
+       </section>`
+    : '';
+
   root.innerHTML = `
     <header class="header quiz-header">
       <button id="backBtn" class="btn-link">&larr; Auswahl</button>
@@ -283,6 +291,8 @@ function renderQuiz() {
       <h2 class="question-text">${escapeHtml(q.q)}</h2>
       <div class="options">${optHtml}</div>
     </section>
+
+    ${explHtml}
 
     <section class="panel actions quiz-actions">
       ${!state.answered
