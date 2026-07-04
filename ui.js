@@ -262,8 +262,6 @@ function setType(tp){
   }
   updateCalcResult(); updateAnsagenUI(); updatePanelHeight();
 }
-
-function setFarbe(i){
   calc.farbeIdx=i;
   document.querySelectorAll('.farbe-btn').forEach(b=>b.classList.toggle('active', +b.dataset.fi===i));
   updateCalcResult();
