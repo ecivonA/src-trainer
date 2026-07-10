@@ -90,6 +90,9 @@ const state = {
   selectedWrongText: null,
   answered: false,
   sessionResults: { correct: 0, wrong: 0, dontknow: 0 },
+  givenAnswers: {},      // id → { text, correct } — für Review-Modus
+  frontier: 0,           // höchster bisher erreichter Index
+  autoAdvanceTimer: null,
 };
 
 /* ---------- Render-Dispatcher ---------- */
@@ -116,7 +119,7 @@ function renderSelect() {
       const cat = CATEGORIES[key];
       const allQs = QUESTIONS.filter(q => q.cat === key);
       const qs = ergOnly ? allQs.filter(q => q.e === 1) : allQs;
-      if (ergOnly && qs.length === 0) return ''; // skip empty cats in +UBI
+      if (ergOnly && qs.length === 0) return '';
       const mastered = qs.filter(q => !isUnsicher(q.id)).length;
       const half = qs.filter(q => getEntry(q.id).streak === 1).length;
       const s = { total: qs.length, mastered, half };
@@ -124,15 +127,20 @@ function renderSelect() {
       const pctMastered = s.total ? Math.round(s.mastered / s.total * 100) : 0;
       const pctSeen     = s.total ? Math.round((s.mastered + s.half) / s.total * 100) : 0;
       return `
-        <label class="cat-row">
-          <input type="checkbox" data-cat="${key}" ${checked} />
-          <span class="cat-title">${escapeHtml(cat.title)}</span>
-          <span class="cat-meta">${s.mastered}/${s.total}</span>
-          <span class="cat-bar">
-            <span class="cat-bar-half" style="width:${pctSeen}%"></span>
-            <span class="cat-bar-fill" style="width:${pctMastered}%"></span>
-          </span>
-        </label>`;
+        <div class="cat-row">
+          <label class="cat-check-wrap" title="Auswählen">
+            <input type="checkbox" data-cat="${key}" ${checked} />
+            <span class="cat-check-box"></span>
+          </label>
+          <button class="cat-title-btn" data-quickstart="${key}">
+            <span class="cat-title">${escapeHtml(cat.title)}</span>
+            <span class="cat-meta">${s.mastered}/${s.total}</span>
+            <span class="cat-bar">
+              <span class="cat-bar-half" style="width:${pctSeen}%"></span>
+              <span class="cat-bar-fill" style="width:${pctMastered}%"></span>
+            </span>
+          </button>
+        </div>`;
     }).join('');
   }
 
@@ -227,6 +235,14 @@ function renderSelect() {
     });
   });
 
+  // Schnellstart per Klick auf Kategorie-Titel
+  root.querySelectorAll('.cat-title-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.getAttribute('data-quickstart');
+      startSession(key);
+    });
+  });
+
   // Filter-Modus
   root.querySelectorAll('input[name="filterMode"]').forEach(r => {
     r.addEventListener('change', e => { state.filterMode = e.target.value; render(); });
@@ -254,13 +270,19 @@ function renderSelect() {
 }
 
 /* ---------- SESSION ---------- */
-function startSession() {
+function startSession(catOverride) {
+  // catOverride: optional single category key for quick-start
+  if (catOverride) {
+    state.selectedCats = [catOverride];
+  }
   let pool = questionsForCats(state.selectedCats);
   if (state.certFilter === '+UBI') pool = pool.filter(q => q.e === 1);
   if (state.filterMode === 'unsicher') pool = pool.filter(q => isUnsicher(q.id));
   state.queue = shuffle(pool).map(q => q.id);
   state.currentIndex = 0;
+  state.frontier = 0;
   state.sessionResults = { correct: 0, wrong: 0, dontknow: 0 };
+  state.givenAnswers = {};
   state.screen = 'quiz';
   loadCurrentQuestion();
   render();
@@ -269,20 +291,34 @@ function startSession() {
 function loadCurrentQuestion() {
   const id = state.queue[state.currentIndex];
   const q = QUESTIONS.find(x => x.id === id);
-  state.currentCorrectText = q.o[0];
-  state.currentShuffledOptions = shuffle(q.o);
-  state.answered = false;
-  state.selectedWrongText = null;
+  const given = state.givenAnswers[id];
+  if (given) {
+    // Reviewing an already-answered question — restore saved shuffle
+    state.currentShuffledOptions = given.shuffled;
+    state.currentCorrectText = q.o[0];
+    state.selectedWrongText = given.correct ? null : given.text;
+    state.answered = true;
+  } else {
+    // Fresh question at the frontier
+    state.currentCorrectText = q.o[0];
+    state.currentShuffledOptions = shuffle(q.o);
+    state.answered = false;
+    state.selectedWrongText = null;
+  }
 }
 
 /* ---------- QUIZ ---------- */
 function renderQuiz() {
+  if (state.autoAdvanceTimer) { clearTimeout(state.autoAdvanceTimer); state.autoAdvanceTimer = null; }
+
   const id = state.queue[state.currentIndex];
   const q = QUESTIONS.find(x => x.id === id);
   const total = state.queue.length;
   const pos = state.currentIndex + 1;
   const certLabel = CATEGORIES[q.cat].cert;
   const catTitle = CATEGORIES[q.cat].title;
+  const isReview = state.currentIndex < state.frontier;
+  const isLast = state.currentIndex + 1 >= total;
 
   const optHtml = state.currentShuffledOptions.map((opt, i) => {
     let cls = 'option';
@@ -291,7 +327,7 @@ function renderQuiz() {
       else if (opt === state.selectedWrongText) cls += ' wrong';
       else cls += ' disabled';
     }
-    return `<button class="${cls}" data-idx="${i}" ${state.answered?'disabled':''}>${escapeHtml(opt)}</button>`;
+    return `<button class="${cls}" data-idx="${i}" ${state.answered ? 'disabled' : ''}>${escapeHtml(opt)}</button>`;
   }).join('');
 
   const explanation = (typeof EXPLANATIONS !== 'undefined') ? (EXPLANATIONS[q.id] || null) : null;
@@ -302,9 +338,30 @@ function renderQuiz() {
        </section>`
     : '';
 
+  const canGoBack = state.currentIndex > 0;
+  const atFrontier = state.currentIndex === state.frontier;
+
+  let actionHtml;
+  if (!state.answered) {
+    actionHtml = `<button id="dontKnowBtn" class="btn-secondary">Weiß nicht</button>`;
+  } else if (isReview && !isLast) {
+    // Reviewing past question: show back + forward
+    actionHtml = `
+      ${canGoBack ? `<button id="prevBtn" class="btn-secondary">← Zurück</button>` : ''}
+      <button id="nextBtn" class="btn-primary">${atFrontier && isLast ? 'Runde beenden' : 'Weiter →'}</button>`;
+  } else if (!isLast) {
+    actionHtml = `
+      ${canGoBack ? `<button id="prevBtn" class="btn-secondary">← Zurück</button>` : ''}
+      <button id="nextBtn" class="btn-primary">Weiter →</button>`;
+  } else {
+    actionHtml = `
+      ${canGoBack ? `<button id="prevBtn" class="btn-secondary">← Zurück</button>` : ''}
+      <button id="nextBtn" class="btn-primary">Runde beenden</button>`;
+  }
+
   root.innerHTML = `
     <header class="header quiz-header">
-      <button id="backBtn" class="btn-link">&larr; Auswahl</button>
+      <button id="exitBtn" class="btn-link">&larr; Auswahl</button>
       <span class="cert-badge cert-${certLabel.toLowerCase()}">${certLabel}</span>
       <p class="progress-text">${pos} / ${total}</p>
     </header>
@@ -318,11 +375,7 @@ function renderQuiz() {
 
     ${explHtml}
 
-    <section class="panel actions quiz-actions">
-      ${!state.answered
-        ? `<button id="dontKnowBtn" class="btn-secondary">Weiß nicht</button>`
-        : `<button id="nextBtn" class="btn-primary">${pos < total ? 'Weiter →' : 'Runde beenden'}</button>`}
-    </section>
+    <section class="panel actions quiz-actions">${actionHtml}</section>
 
     <section class="panel session-stats">
       <span class="stat-correct">✔ ${state.sessionResults.correct}</span>
@@ -331,7 +384,8 @@ function renderQuiz() {
     </section>
   `;
 
-  document.getElementById('backBtn').addEventListener('click', () => {
+  document.getElementById('exitBtn').addEventListener('click', () => {
+    if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
     state.screen = 'select'; render();
   });
 
@@ -343,23 +397,41 @@ function renderQuiz() {
     });
     document.getElementById('dontKnowBtn').addEventListener('click', dontKnow);
   } else {
-    document.getElementById('nextBtn').addEventListener('click', nextQuestion);
+    document.getElementById('nextBtn')?.addEventListener('click', () => {
+      if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
+      nextQuestion();
+    });
+    document.getElementById('prevBtn')?.addEventListener('click', () => {
+      if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
+      prevQuestion();
+    });
   }
 }
 
 function answer(text) {
   const id = state.queue[state.currentIndex];
+  const isCorrect = text === state.currentCorrectText;
   state.answered = true;
-  if (text === state.currentCorrectText) {
-    state.selectedWrongText = null;
+  state.selectedWrongText = isCorrect ? null : text;
+  // Save answer + shuffle order for review
+  state.givenAnswers[id] = { text, correct: isCorrect, shuffled: state.currentShuffledOptions };
+  if (isCorrect) {
     state.sessionResults.correct++;
     markCorrect(id);
   } else {
-    state.selectedWrongText = text;
     state.sessionResults.wrong++;
     markWrongOrUnknown(id);
   }
+  // Advance frontier
+  if (state.currentIndex === state.frontier) state.frontier = state.currentIndex + 1;
   render();
+  // Auto-advance after 1s only on correct answer
+  if (isCorrect) {
+    state.autoAdvanceTimer = setTimeout(() => {
+      state.autoAdvanceTimer = null;
+      nextQuestion();
+    }, 1000);
+  }
 }
 
 function dontKnow() {
@@ -368,6 +440,8 @@ function dontKnow() {
   state.selectedWrongText = null;
   state.sessionResults.dontknow++;
   markWrongOrUnknown(id);
+  state.givenAnswers[id] = { text: null, correct: false, shuffled: state.currentShuffledOptions };
+  if (state.currentIndex === state.frontier) state.frontier = state.currentIndex + 1;
   render();
 }
 
@@ -378,6 +452,14 @@ function nextQuestion() {
     render();
   } else {
     state.screen = 'summary';
+    render();
+  }
+}
+
+function prevQuestion() {
+  if (state.currentIndex > 0) {
+    state.currentIndex--;
+    loadCurrentQuestion();
     render();
   }
 }
