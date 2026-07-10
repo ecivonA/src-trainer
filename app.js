@@ -59,6 +59,17 @@ function certCats(cert) {
   return Object.keys(CATEGORIES).filter(k => CATEGORIES[k].cert === cert);
 }
 
+function questionsForErgaenzung() {
+  return QUESTIONS.filter(q => q.e === 1);
+}
+
+function statsForErgaenzung() {
+  const qs = questionsForErgaenzung();
+  const mastered = qs.filter(q => !isUnsicher(q.id)).length;
+  const half = qs.filter(q => getEntry(q.id).streak === 1).length;
+  return { total: qs.length, mastered, half, unsicher: qs.length - mastered };
+}
+
 function statsFor(catKeys) {
   const qs = questionsForCats(catKeys);
   const mastered = qs.filter(q => !isUnsicher(q.id)).length;
@@ -69,7 +80,7 @@ function statsFor(catKeys) {
 /* ---------- App State ---------- */
 const state = {
   screen: 'select',       // 'select' | 'quiz' | 'summary'
-  certFilter: 'SRC',      // 'SRC' | 'LRC' | 'UBI' | 'ALL'
+  certFilter: 'SRC',      // 'SRC' | 'LRC' | 'UBI' | '+UBI' | 'ALL'
   selectedCats: certCats('SRC'),
   filterMode: 'unsicher', // 'unsicher' | 'alle'
   queue: [],
@@ -97,12 +108,18 @@ function renderSelect() {
   const srcStats = statsFor(srcCats);
   const lrcStats = statsFor(lrcCats);
   const ubiStats = statsFor(ubiCats);
+  const ergStats = statsForErgaenzung();
   const allStats = statsFor([...srcCats, ...lrcCats, ...ubiCats]);
 
-  function catRows(cats) {
+  function catRows(cats, ergOnly = false) {
     return cats.map(key => {
       const cat = CATEGORIES[key];
-      const s = statsFor([key]);
+      const allQs = QUESTIONS.filter(q => q.cat === key);
+      const qs = ergOnly ? allQs.filter(q => q.e === 1) : allQs;
+      if (ergOnly && qs.length === 0) return ''; // skip empty cats in +UBI
+      const mastered = qs.filter(q => !isUnsicher(q.id)).length;
+      const half = qs.filter(q => getEntry(q.id).streak === 1).length;
+      const s = { total: qs.length, mastered, half };
       const checked = state.selectedCats.includes(key) ? 'checked' : '';
       const pctMastered = s.total ? Math.round(s.mastered / s.total * 100) : 0;
       const pctSeen     = s.total ? Math.round((s.mastered + s.half) / s.total * 100) : 0;
@@ -119,7 +136,7 @@ function renderSelect() {
     }).join('');
   }
 
-  const selStats = statsFor(state.selectedCats);
+  const selStats = state.certFilter === '+UBI' ? statsForErgaenzung() : statsFor(state.selectedCats);
   const poolCount = state.filterMode === 'unsicher' ? selStats.unsicher : selStats.total;
 
   root.innerHTML = `
@@ -128,7 +145,8 @@ function renderSelect() {
       <p class="sub">Gesamt: ${allStats.mastered}/${allStats.total} sicher &nbsp;·&nbsp;
         SRC ${srcStats.mastered}/${srcStats.total} &nbsp;·&nbsp;
         LRC ${lrcStats.mastered}/${lrcStats.total} &nbsp;·&nbsp;
-        UBI ${ubiStats.mastered}/${ubiStats.total}</p>
+        UBI ${ubiStats.mastered}/${ubiStats.total} &nbsp;·&nbsp;
+        +UBI ${ergStats.mastered}/${ergStats.total}</p>
     </header>
 
     <section class="panel">
@@ -137,6 +155,7 @@ function renderSelect() {
         <button class="cert-tab ${state.certFilter==='SRC'?'active':''}" data-cert="SRC">SRC</button>
         <button class="cert-tab ${state.certFilter==='LRC'?'active':''}" data-cert="LRC">LRC</button>
         <button class="cert-tab ${state.certFilter==='UBI'?'active':''}" data-cert="UBI">UBI</button>
+        <button class="cert-tab ${state.certFilter==='+UBI'?'active':''}" data-cert="+UBI">+UBI</button>
         <button class="cert-tab ${state.certFilter==='ALL'?'active':''}" data-cert="ALL">Alle</button>
       </div>
     </section>
@@ -152,6 +171,9 @@ function renderSelect() {
       ${(state.certFilter === 'UBI' || state.certFilter === 'ALL') ? `
         ${state.certFilter === 'ALL' ? '<p class="cert-label cert-ubi">UBI</p>' : ''}
         <div class="cat-list">${catRows(ubiCats)}</div>` : ''}
+      ${state.certFilter === '+UBI' ? `
+        <p class="erg-hint">Ergänzungsprüfung SRC→UBI: 79 Fragen aus dem UBI-Katalog.<br>Fortschritt wird mit dem UBI-Tab geteilt.</p>
+        <div class="cat-list">${catRows(ubiCats, true)}</div>` : ''}
       <div class="cat-actions">
         <button id="selAll" class="btn-link">Alle auswählen</button>
         <button id="selNone" class="btn-link">Keine</button>
@@ -186,6 +208,7 @@ function renderSelect() {
       if (state.certFilter === 'SRC') state.selectedCats = certCats('SRC');
       else if (state.certFilter === 'LRC') state.selectedCats = certCats('LRC');
       else if (state.certFilter === 'UBI') state.selectedCats = certCats('UBI');
+      else if (state.certFilter === '+UBI') state.selectedCats = certCats('UBI');
       else state.selectedCats = [...certCats('SRC'), ...certCats('LRC'), ...certCats('UBI')];
       render();
     });
@@ -213,7 +236,7 @@ function renderSelect() {
   document.getElementById('selAll').addEventListener('click', () => {
     const visible = state.certFilter === 'SRC' ? certCats('SRC')
                   : state.certFilter === 'LRC' ? certCats('LRC')
-                  : state.certFilter === 'UBI' ? certCats('UBI')
+                  : (state.certFilter === 'UBI' || state.certFilter === '+UBI') ? certCats('UBI')
                   : [...certCats('SRC'), ...certCats('LRC'), ...certCats('UBI')];
     state.selectedCats = visible;
     render();
@@ -233,6 +256,7 @@ function renderSelect() {
 /* ---------- SESSION ---------- */
 function startSession() {
   let pool = questionsForCats(state.selectedCats);
+  if (state.certFilter === '+UBI') pool = pool.filter(q => q.e === 1);
   if (state.filterMode === 'unsicher') pool = pool.filter(q => isUnsicher(q.id));
   state.queue = shuffle(pool).map(q => q.id);
   state.currentIndex = 0;
