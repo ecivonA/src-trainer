@@ -441,10 +441,23 @@ button {
 .cat-title-btn .cat-meta   { grid-area: meta;  font-size: 12px; color: var(--muted); white-space: nowrap; }
 .cat-title-btn .cat-bar    { grid-area: bar; margin-top: 4px; }
 
-/* ── Quiz-Actions mit Zurück + Weiter ───────────────────────────────── */
+/* ── Quiz-Actions mit Zurück + Weiter/Weiß nicht ────────────────────── */
 .quiz-actions {
   display: flex;
   gap: 10px;
 }
-.quiz-actions .btn-secondary { flex: 0 0 auto; }
-.quiz-actions .btn-primary   { flex: 1; }
+.quiz-actions .action-back,
+.quiz-actions .action-main {
+  flex: 1;
+  width: auto; /* überschreibt width:100% von .btn-primary/.btn-secondary */
+}
+
+/* ── "Weiß nicht" als rote Markierung in der Optionsliste ───────────── */
+.dontknow-marker {
+  cursor: default;
+}
+.dontknow-tag {
+  font-weight: 400;
+  opacity: 0.75;
+  font-size: 13px;
+}

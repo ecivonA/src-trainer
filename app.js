@@ -90,9 +90,10 @@ const state = {
   selectedWrongText: null,
   answered: false,
   sessionResults: { correct: 0, wrong: 0, dontknow: 0 },
-  givenAnswers: {},      // id → { text, correct } — für Review-Modus
+  givenAnswers: {},      // id → { text, correct, shuffled } — für Review-Modus
   frontier: 0,           // höchster bisher erreichter Index
   autoAdvanceTimer: null,
+  freshlyAnswered: false, // true = Antwort gerade eben live gegeben (noch nicht via Zurück/Weiter navigiert)
 };
 
 /* ---------- Render-Dispatcher ---------- */
@@ -296,14 +297,16 @@ function loadCurrentQuestion() {
     // Reviewing an already-answered question — restore saved shuffle
     state.currentShuffledOptions = given.shuffled;
     state.currentCorrectText = q.o[0];
-    state.selectedWrongText = given.correct ? null : given.text;
+    state.selectedWrongText = (given.correct || given.text === null) ? null : given.text;
     state.answered = true;
+    state.freshlyAnswered = false; // via Navigation erreicht, kein Auto-Advance/Timing mehr relevant
   } else {
     // Fresh question at the frontier
     state.currentCorrectText = q.o[0];
     state.currentShuffledOptions = shuffle(q.o);
     state.answered = false;
     state.selectedWrongText = null;
+    state.freshlyAnswered = false;
   }
 }
 
@@ -317,8 +320,9 @@ function renderQuiz() {
   const pos = state.currentIndex + 1;
   const certLabel = CATEGORIES[q.cat].cert;
   const catTitle = CATEGORIES[q.cat].title;
-  const isReview = state.currentIndex < state.frontier;
   const isLast = state.currentIndex + 1 >= total;
+  const given = state.givenAnswers[id];
+  const wasDontKnow = state.answered && given && given.text === null;
 
   const optHtml = state.currentShuffledOptions.map((opt, i) => {
     let cls = 'option';
@@ -330,8 +334,16 @@ function renderQuiz() {
     return `<button class="${cls}" data-idx="${i}" ${state.answered ? 'disabled' : ''}>${escapeHtml(opt)}</button>`;
   }).join('');
 
+  // "Weiß nicht" als eigene rote Markierung zeigen, wenn sie die gegebene Antwort war
+  const dontKnowMarkerHtml = wasDontKnow
+    ? `<div class="option wrong dontknow-marker">Weiß nicht <span class="dontknow-tag">(gewählt)</span></div>`
+    : '';
+
+  // Erklärung ausblenden, solange eine korrekt beantwortete Frage gerade live auto-weiterspringt
+  // (in 1 Sekunde nicht lesbar). Beim Zurückblättern (nicht mehr "freshlyAnswered") wird sie gezeigt.
   const explanation = (typeof EXPLANATIONS !== 'undefined') ? (EXPLANATIONS[q.id] || null) : null;
-  const explHtml = state.answered && explanation
+  const hideBecauseAutoAdvancing = state.freshlyAnswered && given && given.correct;
+  const explHtml = state.answered && explanation && !hideBecauseAutoAdvancing
     ? `<section class="panel explanation-panel">
         <p class="explanation-label">💡 Warum ist das richtig?</p>
         <p class="explanation-text">${escapeHtml(explanation)}</p>
@@ -339,25 +351,16 @@ function renderQuiz() {
     : '';
 
   const canGoBack = state.currentIndex > 0;
-  const atFrontier = state.currentIndex === state.frontier;
+  const backBtnHtml = canGoBack
+    ? `<button id="prevBtn" class="btn-secondary action-back">← Zurück</button>` : '';
 
-  let actionHtml;
+  let mainBtnHtml;
   if (!state.answered) {
-    actionHtml = `<button id="dontKnowBtn" class="btn-secondary">Weiß nicht</button>`;
-  } else if (isReview && !isLast) {
-    // Reviewing past question: show back + forward
-    actionHtml = `
-      ${canGoBack ? `<button id="prevBtn" class="btn-secondary">← Zurück</button>` : ''}
-      <button id="nextBtn" class="btn-primary">${atFrontier && isLast ? 'Runde beenden' : 'Weiter →'}</button>`;
-  } else if (!isLast) {
-    actionHtml = `
-      ${canGoBack ? `<button id="prevBtn" class="btn-secondary">← Zurück</button>` : ''}
-      <button id="nextBtn" class="btn-primary">Weiter →</button>`;
+    mainBtnHtml = `<button id="dontKnowBtn" class="btn-secondary action-main">Weiß nicht</button>`;
   } else {
-    actionHtml = `
-      ${canGoBack ? `<button id="prevBtn" class="btn-secondary">← Zurück</button>` : ''}
-      <button id="nextBtn" class="btn-primary">Runde beenden</button>`;
+    mainBtnHtml = `<button id="nextBtn" class="btn-primary action-main">${isLast ? 'Runde beenden' : 'Weiter →'}</button>`;
   }
+  const actionHtml = backBtnHtml + mainBtnHtml;
 
   root.innerHTML = `
     <header class="header quiz-header">
@@ -370,7 +373,7 @@ function renderQuiz() {
     <section class="panel question-panel">
       <p class="question-id">Frage ${q.id} &middot; ${escapeHtml(catTitle)}</p>
       <h2 class="question-text">${escapeHtml(q.q)}</h2>
-      <div class="options">${optHtml}</div>
+      <div class="options">${optHtml}${dontKnowMarkerHtml}</div>
     </section>
 
     ${explHtml}
@@ -401,17 +404,19 @@ function renderQuiz() {
       if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
       nextQuestion();
     });
-    document.getElementById('prevBtn')?.addEventListener('click', () => {
-      if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
-      prevQuestion();
-    });
   }
+  // Zurück ist unabhängig vom Beantwortungs-Status verfügbar
+  document.getElementById('prevBtn')?.addEventListener('click', () => {
+    if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
+    prevQuestion();
+  });
 }
 
 function answer(text) {
   const id = state.queue[state.currentIndex];
   const isCorrect = text === state.currentCorrectText;
   state.answered = true;
+  state.freshlyAnswered = true;
   state.selectedWrongText = isCorrect ? null : text;
   // Save answer + shuffle order for review
   state.givenAnswers[id] = { text, correct: isCorrect, shuffled: state.currentShuffledOptions };
@@ -437,6 +442,7 @@ function answer(text) {
 function dontKnow() {
   const id = state.queue[state.currentIndex];
   state.answered = true;
+  state.freshlyAnswered = true;
   state.selectedWrongText = null;
   state.sessionResults.dontknow++;
   markWrongOrUnknown(id);
