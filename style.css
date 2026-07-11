@@ -463,6 +463,9 @@ button {
 }
 
 /* ── Swipe-Navigation ────────────────────────────────────────────────── */
+.quiz-swipe-viewport {
+  position: relative; /* Basis für die beiden absolut positionierten Panels während des Übergangs */
+}
 .quiz-swipe-area {
   touch-action: pan-y; /* horizontales Wischen frei für Navigation, vertikal weiter scrollbar */
   will-change: transform, opacity;

@@ -338,36 +338,14 @@ function showToast(message) {
   toastTimer = setTimeout(() => { el.classList.remove('toast-show'); }, 2200);
 }
 
-/* ---------- Swipe-Navigation mit Drag-Follow + Slide-Übergang ---------- */
-const SWIPE_THRESHOLD = 55;   // min. horizontale Strecke in px, die als Wisch zählt
-const SWIPE_RESTRAINT = 90;   // max. erlaubte vertikale Abweichung in px
-const SWIPE_EXIT_MS = 180;
-const SWIPE_ENTER_MS = 200;
+/* ---------- Swipe-Navigation mit Drag-Follow + synchronem Slide-Übergang ---------- */
+const SWIPE_THRESHOLD = 55;    // min. horizontale Strecke in px, die als Wisch zählt
+const SWIPE_RESTRAINT = 90;    // max. erlaubte vertikale Abweichung in px
+const SWIPE_SLIDE_MS = 220;    // Dauer des synchronen Übergangs (alt raus + neu rein gleichzeitig)
 const SWIPE_SNAPBACK_MS = 150;
-
-// Merkt sich zwischen zwei renderQuiz()-Aufrufen, von welcher Seite die
-// nächste Frage "hereinrutschen" soll (gesetzt beim Wisch-Ende, verbraucht
-// beim nächsten attachSwipeHandlers-Aufruf nach dem Re-Render).
-let pendingSwipeEntranceFromRight = null;
 
 function attachSwipeHandlers(el) {
   if (!el) return;
-
-  // Eintritts-Animation, falls diese Frage gerade durch einen Wisch hereingerutscht ist
-  if (pendingSwipeEntranceFromRight !== null) {
-    const fromRight = pendingSwipeEntranceFromRight;
-    pendingSwipeEntranceFromRight = null;
-    el.style.transition = 'none';
-    el.style.transform = `translateX(${fromRight ? 100 : -100}%)`;
-    el.style.opacity = '0';
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        el.style.transition = `transform ${SWIPE_ENTER_MS}ms ease-out, opacity ${SWIPE_ENTER_MS}ms ease-out`;
-        el.style.transform = 'translateX(0)';
-        el.style.opacity = '1';
-      });
-    });
-  }
 
   let startX = 0, startY = 0, curX = 0, curY = 0, dragging = false, pointerId = null;
 
@@ -405,36 +383,83 @@ function attachSwipeHandlers(el) {
     const allowed = forward ? state.answered : state.currentIndex > 0;
     const valid = allowed && Math.abs(dx) > SWIPE_THRESHOLD && Math.abs(dy) < SWIPE_RESTRAINT;
 
-    if (valid) {
-      // Aktuelle Frage komplett zur Seite hinausschieben
-      el.style.transition = `transform ${SWIPE_EXIT_MS}ms ease-in, opacity ${SWIPE_EXIT_MS}ms ease-in`;
-      el.style.transform = `translateX(${forward ? -100 : 100}%)`;
-      el.style.opacity = '0';
-      pendingSwipeEntranceFromRight = forward; // nächste Frage kommt von rechts (weiter) bzw. links (zurück)
-      if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
-      setTimeout(() => { forward ? nextQuestion() : prevQuestion(); }, SWIPE_EXIT_MS);
-    } else {
-      // Zurückschnappen an die Ausgangsposition
+    if (!valid) {
       el.style.transition = `transform ${SWIPE_SNAPBACK_MS}ms ease-out`;
       el.style.transform = 'translateX(0)';
+      return;
     }
+
+    if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
+    const isLastForward = forward && (state.currentIndex + 1 >= state.queue.length);
+
+    if (isLastForward) {
+      // Rundenende: die Auswertung ist ein komplett anderer Screen, dafür reicht ein einfacher Exit
+      el.style.transition = `transform ${SWIPE_SLIDE_MS}ms ease-in, opacity ${SWIPE_SLIDE_MS}ms ease-in`;
+      el.style.transform = 'translateX(-100%)';
+      el.style.opacity = '0';
+      setTimeout(() => nextQuestion(), SWIPE_SLIDE_MS);
+      return;
+    }
+
+    runSlideTransition(el, forward);
   }
 
   el.addEventListener('pointerup', endDrag);
   el.addEventListener('pointercancel', endDrag);
 }
 
-/* ---------- QUIZ ---------- */
-function renderQuiz() {
-  if (state.autoAdvanceTimer) { clearTimeout(state.autoAdvanceTimer); state.autoAdvanceTimer = null; }
+// Bewegt das alte und das neue Fragen-Panel GLEICHZEITIG um dieselbe Strecke in dieselbe
+// Richtung (wie ein Filmstreifen) – dadurch berühren sich beide Panels durchgehend und es
+// entsteht keine sichtbare Lücke zum Hintergrund, egal wie lang der Übergang dauert.
+function runSlideTransition(oldPanel, forward) {
+  const viewport = oldPanel.parentElement;
+  if (!viewport) { forward ? nextQuestion() : prevQuestion(); return; }
 
+  // Höhe kurz fixieren: solange beide Panels absolut positioniert übereinanderliegen,
+  // würde der Viewport sonst kollabieren (kein normaler Fluss-Inhalt mehr vorhanden).
+  viewport.style.height = oldPanel.offsetHeight + 'px';
+  viewport.style.position = 'relative';
+  viewport.style.overflow = 'hidden';
+
+  // Zustand fortschalten und neuen Inhalt bauen — ohne kompletten Re-Render, damit wir das
+  // alte Panel noch für die Animation zur Verfügung haben.
+  if (forward) state.currentIndex++; else state.currentIndex--;
+  loadCurrentQuestion();
+
+  const newPanel = document.createElement('div');
+  newPanel.className = 'quiz-swipe-area';
+  newPanel.innerHTML = renderQuestionPanelInner();
+
+  Object.assign(oldPanel.style, { position: 'absolute', top: '0', left: '0', width: '100%', margin: '0' });
+  Object.assign(newPanel.style, {
+    position: 'absolute', top: '0', left: '0', width: '100%', margin: '0',
+    transition: 'none', transform: `translateX(${forward ? 100 : -100}%)`,
+  });
+  viewport.appendChild(newPanel);
+
+  void newPanel.offsetWidth; // Reflow erzwingen, damit der Startzustand nicht mit animiert wird
+
+  requestAnimationFrame(() => {
+    const t = `transform ${SWIPE_SLIDE_MS}ms cubic-bezier(0.22, 0.61, 0.36, 1)`;
+    oldPanel.style.transition = t;
+    newPanel.style.transition = t;
+    oldPanel.style.transform = `translateX(${forward ? -100 : 100}%)`;
+    newPanel.style.transform = 'translateX(0)';
+  });
+
+  setTimeout(() => {
+    viewport.style.height = '';
+    render(); // sauberer, vollständiger Re-Render ersetzt die Übergangs-Panels nahtlos
+  }, SWIPE_SLIDE_MS + 20);
+}
+
+
+/* ---------- QUIZ ---------- */
+function renderQuestionPanelInner() {
   const id = state.queue[state.currentIndex];
   const q = QUESTIONS.find(x => x.id === id);
   const total = state.queue.length;
-  const pos = state.currentIndex + 1;
-  const certLabel = CATEGORIES[q.cat].cert;
   const catTitle = CATEGORIES[q.cat].title;
-  const isLast = state.currentIndex + 1 >= total;
   const given = state.givenAnswers[id];
   const wasDontKnow = state.answered && given && given.text === null;
 
@@ -448,13 +473,10 @@ function renderQuiz() {
     return `<button class="${cls}" data-idx="${i}" ${state.answered ? 'disabled' : ''}>${escapeHtml(opt)}</button>`;
   }).join('');
 
-  // "Weiß nicht" als eigene rote Markierung zeigen, wenn sie die gegebene Antwort war
   const dontKnowMarkerHtml = wasDontKnow
     ? `<div class="option wrong dontknow-marker">Weiß nicht <span class="dontknow-tag">(gewählt)</span></div>`
     : '';
 
-  // Erklärung ausblenden, solange eine korrekt beantwortete Frage gerade live auto-weiterspringt
-  // (in 1 Sekunde nicht lesbar). Beim Zurückblättern (nicht mehr "freshlyAnswered") wird sie gezeigt.
   const explanation = (typeof EXPLANATIONS !== 'undefined') ? (EXPLANATIONS[q.id] || null) : null;
   const hideBecauseAutoAdvancing = state.freshlyAnswered && given && given.correct;
   const explHtml = state.answered && explanation && !hideBecauseAutoAdvancing
@@ -463,6 +485,25 @@ function renderQuiz() {
         <p class="explanation-text">${escapeHtml(explanation)}</p>
        </section>`
     : '';
+
+  return `
+      <section class="panel question-panel">
+        <p class="question-id">Frage ${q.id} &middot; ${escapeHtml(catTitle)}</p>
+        <h2 class="question-text">${escapeHtml(q.q)}</h2>
+        <div class="options">${optHtml}${dontKnowMarkerHtml}</div>
+      </section>
+      ${explHtml}`;
+}
+
+function renderQuiz() {
+  if (state.autoAdvanceTimer) { clearTimeout(state.autoAdvanceTimer); state.autoAdvanceTimer = null; }
+
+  const id = state.queue[state.currentIndex];
+  const q = QUESTIONS.find(x => x.id === id);
+  const total = state.queue.length;
+  const pos = state.currentIndex + 1;
+  const certLabel = CATEGORIES[q.cat].cert;
+  const isLast = state.currentIndex + 1 >= total;
 
   const canGoBack = state.currentIndex > 0;
   const backBtnHtml = canGoBack
@@ -484,14 +525,8 @@ function renderQuiz() {
     </header>
     <div class="progress-bar"><div class="progress-bar-fill" style="width:${(pos-1)/total*100}%"></div></div>
 
-    <div id="quizSwipeArea" class="quiz-swipe-area">
-      <section class="panel question-panel">
-        <p class="question-id">Frage ${q.id} &middot; ${escapeHtml(catTitle)}</p>
-        <h2 class="question-text">${escapeHtml(q.q)}</h2>
-        <div class="options">${optHtml}${dontKnowMarkerHtml}</div>
-      </section>
-
-      ${explHtml}
+    <div id="quizSwipeViewport" class="quiz-swipe-viewport">
+      <div id="quizSwipeArea" class="quiz-swipe-area">${renderQuestionPanelInner()}</div>
     </div>
 
     <section class="panel actions quiz-actions">${actionHtml}</section>
