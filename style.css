@@ -461,3 +461,8 @@ button {
   opacity: 0.75;
   font-size: 13px;
 }
+
+/* ── Swipe-Navigation ────────────────────────────────────────────────── */
+.quiz-swipe-area {
+  touch-action: pan-y; /* horizontales Wischen frei für Navigation, vertikal weiter scrollbar */
+}

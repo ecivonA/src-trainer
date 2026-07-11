@@ -310,6 +310,46 @@ function loadCurrentQuestion() {
   }
 }
 
+/* ---------- Swipe-Navigation (Touch + Maus) ---------- */
+function attachSwipeHandlers(el) {
+  if (!el) return;
+  const THRESHOLD = 55;   // min. horizontale Strecke in px
+  const RESTRAINT = 90;   // max. erlaubte vertikale Abweichung in px
+  let startX = 0, startY = 0, tracking = false;
+
+  el.addEventListener('pointerdown', (e) => {
+    // nur linke Maustaste / Touch / Stift
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    tracking = true;
+    startX = e.clientX;
+    startY = e.clientY;
+  });
+
+  el.addEventListener('pointerup', (e) => {
+    if (!tracking) return;
+    tracking = false;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (Math.abs(dx) < THRESHOLD || Math.abs(dy) > RESTRAINT) return;
+
+    if (dx < 0) {
+      // nach links wischen = vorwärts (nur wenn beantwortet, entspricht "Weiter"/"Runde beenden")
+      if (state.answered) {
+        if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
+        nextQuestion();
+      }
+    } else {
+      // nach rechts wischen = zurück
+      if (state.currentIndex > 0) {
+        if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
+        prevQuestion();
+      }
+    }
+  });
+
+  el.addEventListener('pointercancel', () => { tracking = false; });
+}
+
 /* ---------- QUIZ ---------- */
 function renderQuiz() {
   if (state.autoAdvanceTimer) { clearTimeout(state.autoAdvanceTimer); state.autoAdvanceTimer = null; }
@@ -370,13 +410,15 @@ function renderQuiz() {
     </header>
     <div class="progress-bar"><div class="progress-bar-fill" style="width:${(pos-1)/total*100}%"></div></div>
 
-    <section class="panel question-panel">
-      <p class="question-id">Frage ${q.id} &middot; ${escapeHtml(catTitle)}</p>
-      <h2 class="question-text">${escapeHtml(q.q)}</h2>
-      <div class="options">${optHtml}${dontKnowMarkerHtml}</div>
-    </section>
+    <div id="quizSwipeArea" class="quiz-swipe-area">
+      <section class="panel question-panel">
+        <p class="question-id">Frage ${q.id} &middot; ${escapeHtml(catTitle)}</p>
+        <h2 class="question-text">${escapeHtml(q.q)}</h2>
+        <div class="options">${optHtml}${dontKnowMarkerHtml}</div>
+      </section>
 
-    ${explHtml}
+      ${explHtml}
+    </div>
 
     <section class="panel actions quiz-actions">${actionHtml}</section>
 
@@ -391,6 +433,8 @@ function renderQuiz() {
     if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
     state.screen = 'select'; render();
   });
+
+  attachSwipeHandlers(document.getElementById('quizSwipeArea'));
 
   if (!state.answered) {
     root.querySelectorAll('.option').forEach(btn => {
