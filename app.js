@@ -338,44 +338,90 @@ function showToast(message) {
   toastTimer = setTimeout(() => { el.classList.remove('toast-show'); }, 2200);
 }
 
-/* ---------- Swipe-Navigation (Touch + Maus) ---------- */
+/* ---------- Swipe-Navigation mit Drag-Follow + Slide-Übergang ---------- */
+const SWIPE_THRESHOLD = 55;   // min. horizontale Strecke in px, die als Wisch zählt
+const SWIPE_RESTRAINT = 90;   // max. erlaubte vertikale Abweichung in px
+const SWIPE_EXIT_MS = 180;
+const SWIPE_ENTER_MS = 200;
+const SWIPE_SNAPBACK_MS = 150;
+
+// Merkt sich zwischen zwei renderQuiz()-Aufrufen, von welcher Seite die
+// nächste Frage "hereinrutschen" soll (gesetzt beim Wisch-Ende, verbraucht
+// beim nächsten attachSwipeHandlers-Aufruf nach dem Re-Render).
+let pendingSwipeEntranceFromRight = null;
+
 function attachSwipeHandlers(el) {
   if (!el) return;
-  const THRESHOLD = 55;   // min. horizontale Strecke in px
-  const RESTRAINT = 90;   // max. erlaubte vertikale Abweichung in px
-  let startX = 0, startY = 0, tracking = false;
+
+  // Eintritts-Animation, falls diese Frage gerade durch einen Wisch hereingerutscht ist
+  if (pendingSwipeEntranceFromRight !== null) {
+    const fromRight = pendingSwipeEntranceFromRight;
+    pendingSwipeEntranceFromRight = null;
+    el.style.transition = 'none';
+    el.style.transform = `translateX(${fromRight ? 100 : -100}%)`;
+    el.style.opacity = '0';
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        el.style.transition = `transform ${SWIPE_ENTER_MS}ms ease-out, opacity ${SWIPE_ENTER_MS}ms ease-out`;
+        el.style.transform = 'translateX(0)';
+        el.style.opacity = '1';
+      });
+    });
+  }
+
+  let startX = 0, startY = 0, curX = 0, curY = 0, dragging = false, pointerId = null;
 
   el.addEventListener('pointerdown', (e) => {
-    // nur linke Maustaste / Touch / Stift
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    tracking = true;
-    startX = e.clientX;
-    startY = e.clientY;
+    dragging = true;
+    startX = curX = e.clientX;
+    startY = curY = e.clientY;
+    pointerId = e.pointerId;
+    try { el.setPointerCapture(pointerId); } catch (_) {}
+    el.style.transition = 'none';
   });
 
-  el.addEventListener('pointerup', (e) => {
-    if (!tracking) return;
-    tracking = false;
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-    if (Math.abs(dx) < THRESHOLD || Math.abs(dy) > RESTRAINT) return;
+  el.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    curX = e.clientX;
+    curY = e.clientY;
+    const dy = curY - startY;
+    if (Math.abs(dy) > SWIPE_RESTRAINT) return; // eher vertikales Scrollen, nicht mitziehen
+    let dx = curX - startX;
+    const wantsForward = dx < 0;
+    const allowed = wantsForward ? state.answered : state.currentIndex > 0;
+    if (!allowed) dx *= 0.28; // Gummiband-Effekt, wenn Richtung gerade nicht gültig ist
+    el.style.transform = `translateX(${dx}px)`;
+  });
 
-    if (dx < 0) {
-      // nach links wischen = vorwärts (nur wenn beantwortet, entspricht "Weiter"/"Runde beenden")
-      if (state.answered) {
-        if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
-        nextQuestion();
-      }
+  function endDrag(e) {
+    if (!dragging) return;
+    dragging = false;
+    if (pointerId != null) { try { el.releasePointerCapture(pointerId); } catch (_) {} }
+
+    const dx = curX - startX;
+    const dy = curY - startY;
+    const forward = dx < 0;
+    const allowed = forward ? state.answered : state.currentIndex > 0;
+    const valid = allowed && Math.abs(dx) > SWIPE_THRESHOLD && Math.abs(dy) < SWIPE_RESTRAINT;
+
+    if (valid) {
+      // Aktuelle Frage komplett zur Seite hinausschieben
+      el.style.transition = `transform ${SWIPE_EXIT_MS}ms ease-in, opacity ${SWIPE_EXIT_MS}ms ease-in`;
+      el.style.transform = `translateX(${forward ? -100 : 100}%)`;
+      el.style.opacity = '0';
+      pendingSwipeEntranceFromRight = forward; // nächste Frage kommt von rechts (weiter) bzw. links (zurück)
+      if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
+      setTimeout(() => { forward ? nextQuestion() : prevQuestion(); }, SWIPE_EXIT_MS);
     } else {
-      // nach rechts wischen = zurück
-      if (state.currentIndex > 0) {
-        if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
-        prevQuestion();
-      }
+      // Zurückschnappen an die Ausgangsposition
+      el.style.transition = `transform ${SWIPE_SNAPBACK_MS}ms ease-out`;
+      el.style.transform = 'translateX(0)';
     }
-  });
+  }
 
-  el.addEventListener('pointercancel', () => { tracking = false; });
+  el.addEventListener('pointerup', endDrag);
+  el.addEventListener('pointercancel', endDrag);
 }
 
 /* ---------- QUIZ ---------- */
