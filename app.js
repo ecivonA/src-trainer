@@ -454,6 +454,12 @@ function runSlideTransition(oldPanel, forward) {
 }
 
 
+/* ---------- Anzeige-Nummer (z.B. "LRC-003") aus offizieller Katalognummer ---------- */
+function displayNumber(q) {
+  const cert = CATEGORIES[q.cat].cert; // 'SRC' | 'LRC' | 'UBI'
+  return `${cert}-${String(q.n).padStart(3, '0')}`;
+}
+
 /* ---------- QUIZ ---------- */
 function renderQuestionPanelInner() {
   const id = state.queue[state.currentIndex];
@@ -488,7 +494,7 @@ function renderQuestionPanelInner() {
 
   return `
       <section class="panel question-panel">
-        <p class="question-id">Frage ${q.id} &middot; ${escapeHtml(catTitle)}</p>
+        <p class="question-id">${displayNumber(q)} &middot; ${escapeHtml(catTitle)}</p>
         <h2 class="question-text">${escapeHtml(q.q)}</h2>
         <div class="options">${optHtml}${dontKnowMarkerHtml}</div>
       </section>
