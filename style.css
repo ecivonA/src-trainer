@@ -466,3 +466,28 @@ button {
 .quiz-swipe-area {
   touch-action: pan-y; /* horizontales Wischen frei für Navigation, vertikal weiter scrollbar */
 }
+
+/* ── Toast (kurze Rückmeldung, z.B. leerer Fragenpool) ──────────────── */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%) translateY(12px);
+  max-width: min(90vw, 380px);
+  background: var(--navy-dark, #1c2b3a);
+  color: white;
+  padding: 12px 18px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: center;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  z-index: 1000;
+}
+.toast.toast-show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}

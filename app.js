@@ -262,7 +262,7 @@ function renderSelect() {
     state.selectedCats = []; render();
   });
 
-  document.getElementById('startBtn').addEventListener('click', startSession);
+  document.getElementById('startBtn').addEventListener('click', () => startSession());
   document.getElementById('resetBtn').addEventListener('click', () => {
     if (confirm('Wirklich den gesamten Lernfortschritt löschen?')) {
       resetAllProgress(); render();
@@ -279,6 +279,16 @@ function startSession(catOverride) {
   let pool = questionsForCats(state.selectedCats);
   if (state.certFilter === '+UBI') pool = pool.filter(q => q.e === 1);
   if (state.filterMode === 'unsicher') pool = pool.filter(q => isUnsicher(q.id));
+
+  if (pool.length === 0) {
+    showToast(
+      state.filterMode === 'unsicher'
+        ? 'Schon alles sicher gelernt – hier gibt’s aktuell nichts zu üben 🎉'
+        : 'Keine Fragen in dieser Auswahl'
+    );
+    return;
+  }
+
   state.queue = shuffle(pool).map(q => q.id);
   state.currentIndex = 0;
   state.frontier = 0;
@@ -308,6 +318,24 @@ function loadCurrentQuestion() {
     state.selectedWrongText = null;
     state.freshlyAnswered = false;
   }
+}
+
+/* ---------- Toast (kurze Rückmeldung) ---------- */
+let toastTimer = null;
+function showToast(message) {
+  let el = document.getElementById('toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast';
+    el.className = 'toast';
+    document.body.appendChild(el);
+  }
+  el.textContent = message;
+  el.classList.remove('toast-show'); // reflow erzwingen, falls Toast schon sichtbar war
+  void el.offsetWidth;
+  el.classList.add('toast-show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.classList.remove('toast-show'); }, 2200);
 }
 
 /* ---------- Swipe-Navigation (Touch + Maus) ---------- */
@@ -531,7 +559,7 @@ function renderSummary() {
       <button id="toSelectBtn" class="btn-secondary">Zurück zur Auswahl</button>
     </section>
   `;
-  document.getElementById('againBtn').addEventListener('click', startSession);
+  document.getElementById('againBtn').addEventListener('click', () => startSession());
   document.getElementById('toSelectBtn').addEventListener('click', () => {
     state.screen = 'select'; render();
   });
