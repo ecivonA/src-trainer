@@ -289,6 +289,7 @@ button {
 .cert-tabs {
   display: flex;
   gap: 8px;
+  touch-action: pan-y; /* horizontales Streichen über die Tabs frei für die Drag-Vorschau */
 }
 
 .cert-tab {

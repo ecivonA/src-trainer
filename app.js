@@ -172,15 +172,19 @@ function render() {
 }
 
 /* ---------- SELECT ---------- */
-function renderSelect() {
+const CERT_TAB_ORDER = ['SRC', 'LRC', 'UBI', '+UBI', 'ALL'];
+
+function selectedCatsForCertFilter(filter) {
+  if (filter === 'SRC') return certCats('SRC');
+  if (filter === 'LRC') return certCats('LRC');
+  if (filter === 'UBI' || filter === '+UBI') return certCats('UBI');
+  return [...certCats('SRC'), ...certCats('LRC'), ...certCats('UBI')];
+}
+
+function certContentHtml() {
   const srcCats = certCats('SRC');
   const lrcCats = certCats('LRC');
   const ubiCats = certCats('UBI');
-  const srcStats = statsFor(srcCats);
-  const lrcStats = statsFor(lrcCats);
-  const ubiStats = statsFor(ubiCats);
-  const ergStats = statsForErgaenzung();
-  const allStats = statsFor([...srcCats, ...lrcCats, ...ubiCats]);
 
   function catRows(cats, ergOnly = false) {
     return cats.map(key => {
@@ -241,35 +245,8 @@ function renderSelect() {
   const selStats = state.certFilter === '+UBI' ? statsForErgaenzung() : statsFor(state.selectedCats);
   const poolCount = state.filterMode === 'unsicher' ? selStats.unsicher : selStats.total;
 
-  root.innerHTML = `
-    <header class="header">
-      <h1>Funkzeugnis Trainer</h1>
-      <p class="sub">Gesamt: ${allStats.mastered}/${allStats.total} sicher &nbsp;·&nbsp;
-        SRC ${srcStats.mastered}/${srcStats.total} &nbsp;·&nbsp;
-        LRC ${lrcStats.mastered}/${lrcStats.total} &nbsp;·&nbsp;
-        UBI ${ubiStats.mastered}/${ubiStats.total} &nbsp;·&nbsp;
-        +UBI ${ergStats.mastered}/${ergStats.total}</p>
-    </header>
-
-    <section class="panel">
-      <div class="mode-toggle">
-        <button class="mode-toggle-btn ${state.mode==='practice'?'active':''}" data-mode="practice">Üben</button>
-        <button class="mode-toggle-btn ${state.mode==='exam'?'active':''}" data-mode="exam">Prüfen</button>
-      </div>
-    </section>
-
-    <section class="panel">
-      <h2>Zertifikat</h2>
-      <div class="cert-tabs">
-        <button class="cert-tab ${state.certFilter==='SRC'?'active':''}" data-cert="SRC">SRC</button>
-        <button class="cert-tab ${state.certFilter==='LRC'?'active':''}" data-cert="LRC">LRC</button>
-        <button class="cert-tab ${state.certFilter==='UBI'?'active':''}" data-cert="UBI">UBI</button>
-        <button class="cert-tab ${state.certFilter==='+UBI'?'active':''}" data-cert="+UBI">+UBI</button>
-        <button class="cert-tab ${state.certFilter==='ALL'?'active':''}" data-cert="ALL">Alle</button>
-      </div>
-    </section>
-
-    ${state.mode === 'practice' ? `
+  if (state.mode === 'practice') {
+    return `
     <section class="panel">
       <h2>Kategorien</h2>
       ${(state.certFilter === 'SRC' || state.certFilter === 'ALL') ? `
@@ -308,8 +285,10 @@ function renderSelect() {
     <section class="panel actions">
       <button id="startBtn" class="btn-primary" ${poolCount===0?'disabled':''}>Lernrunde starten</button>
       <button id="resetBtn" class="btn-danger-link">Gesamten Fortschritt zurücksetzen</button>
-    </section>
-    ` : `
+    </section>`;
+  }
+
+  return `
     <section class="panel">
       <h2>Prüfbögen</h2>
       ${examGroupsForFilter(state.certFilter).map(group => `
@@ -320,23 +299,10 @@ function renderSelect() {
 
     <section class="panel actions">
       <button id="resetBtn" class="btn-danger-link">Gesamten Fortschritt zurücksetzen</button>
-    </section>
-    `}
-  `;
+    </section>`;
+}
 
-  // Zertifikat-Tabs
-  root.querySelectorAll('.cert-tab').forEach(btn => {
-    btn.addEventListener('click', () => {
-      state.certFilter = btn.getAttribute('data-cert');
-      if (state.certFilter === 'SRC') state.selectedCats = certCats('SRC');
-      else if (state.certFilter === 'LRC') state.selectedCats = certCats('LRC');
-      else if (state.certFilter === 'UBI') state.selectedCats = certCats('UBI');
-      else if (state.certFilter === '+UBI') state.selectedCats = certCats('UBI');
-      else state.selectedCats = [...certCats('SRC'), ...certCats('LRC'), ...certCats('UBI')];
-      render();
-    });
-  });
-
+function bindCertContentListeners() {
   // Kategorie-Checkboxen
   root.querySelectorAll('input[data-cat]').forEach(cb => {
     cb.addEventListener('change', e => {
@@ -346,7 +312,7 @@ function renderSelect() {
       } else {
         state.selectedCats = state.selectedCats.filter(k => k !== key);
       }
-      render();
+      updateCertContentInPlace();
     });
   });
 
@@ -369,20 +335,16 @@ function renderSelect() {
 
   // Filter-Modus
   root.querySelectorAll('input[name="filterMode"]').forEach(r => {
-    r.addEventListener('change', e => { state.filterMode = e.target.value; render(); });
+    r.addEventListener('change', e => { state.filterMode = e.target.value; updateCertContentInPlace(); });
   });
 
   // Alle / Keine
   document.getElementById('selAll')?.addEventListener('click', () => {
-    const visible = state.certFilter === 'SRC' ? certCats('SRC')
-                  : state.certFilter === 'LRC' ? certCats('LRC')
-                  : (state.certFilter === 'UBI' || state.certFilter === '+UBI') ? certCats('UBI')
-                  : [...certCats('SRC'), ...certCats('LRC'), ...certCats('UBI')];
-    state.selectedCats = visible;
-    render();
+    state.selectedCats = selectedCatsForCertFilter(state.certFilter === '+UBI' ? 'UBI' : state.certFilter);
+    updateCertContentInPlace();
   });
   document.getElementById('selNone')?.addEventListener('click', () => {
-    state.selectedCats = []; render();
+    state.selectedCats = []; updateCertContentInPlace();
   });
 
   document.getElementById('startBtn')?.addEventListener('click', () => startSession());
@@ -390,6 +352,118 @@ function renderSelect() {
     if (confirm('Wirklich den gesamten Lernfortschritt löschen (inkl. Prüfungsergebnisse)?')) {
       resetAllProgress(); render();
     }
+  });
+}
+
+// Aktualisiert nur den Inhalt unterhalb der Zertifikat-Tabs (Kategorien/Prüfbögen), ohne die
+// Tab-Leiste selbst neu aufzubauen — wichtig, damit eine laufende Streich-Geste über die Tabs
+// (siehe attachCertTabDragPreview) nicht durch einen kompletten Re-Render unterbrochen wird.
+function updateCertContentInPlace() {
+  const area = document.getElementById('certSwipeArea');
+  if (!area) { render(); return; }
+  area.innerHTML = certContentHtml();
+  bindCertContentListeners();
+}
+
+function updateCertTabsActiveUI() {
+  root.querySelectorAll('.cert-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-cert') === state.certFilter);
+  });
+}
+
+function applyCertFilter(newFilter) {
+  if (state.certFilter === newFilter) return;
+  state.certFilter = newFilter;
+  state.selectedCats = selectedCatsForCertFilter(newFilter);
+  updateCertTabsActiveUI();
+  updateCertContentInPlace();
+}
+
+// Streichen über die Zertifikat-Buttons selbst: die Auswahl folgt live dem Finger/der Maus,
+// wechselt also schon beim Drüberstreichen um, nicht erst beim Loslassen.
+function attachCertTabDragPreview(barEl) {
+  if (!barEl) return;
+  let dragging = false;
+
+  barEl.addEventListener('pointerdown', () => { dragging = true; });
+
+  barEl.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const atPoint = document.elementFromPoint(e.clientX, e.clientY);
+    const tabBtn = atPoint ? atPoint.closest('.cert-tab') : null;
+    if (tabBtn) applyCertFilter(tabBtn.getAttribute('data-cert'));
+  });
+
+  function endDrag() { dragging = false; }
+  barEl.addEventListener('pointerup', endDrag);
+  barEl.addEventListener('pointercancel', endDrag);
+  barEl.addEventListener('pointerleave', endDrag);
+}
+
+function renderSelect() {
+  const srcCats = certCats('SRC');
+  const lrcCats = certCats('LRC');
+  const ubiCats = certCats('UBI');
+  const srcStats = statsFor(srcCats);
+  const lrcStats = statsFor(lrcCats);
+  const ubiStats = statsFor(ubiCats);
+  const ergStats = statsForErgaenzung();
+  const allStats = statsFor([...srcCats, ...lrcCats, ...ubiCats]);
+
+  root.innerHTML = `
+    <header class="header">
+      <h1>Funkzeugnis Trainer</h1>
+      <p class="sub">Gesamt: ${allStats.mastered}/${allStats.total} sicher &nbsp;·&nbsp;
+        SRC ${srcStats.mastered}/${srcStats.total} &nbsp;·&nbsp;
+        LRC ${lrcStats.mastered}/${lrcStats.total} &nbsp;·&nbsp;
+        UBI ${ubiStats.mastered}/${ubiStats.total} &nbsp;·&nbsp;
+        +UBI ${ergStats.mastered}/${ergStats.total}</p>
+    </header>
+
+    <section class="panel">
+      <div class="mode-toggle">
+        <button class="mode-toggle-btn ${state.mode==='practice'?'active':''}" data-mode="practice">Üben</button>
+        <button class="mode-toggle-btn ${state.mode==='exam'?'active':''}" data-mode="exam">Prüfen</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Zertifikat</h2>
+      <div class="cert-tabs" id="certTabsBar">
+        <button class="cert-tab ${state.certFilter==='SRC'?'active':''}" data-cert="SRC">SRC</button>
+        <button class="cert-tab ${state.certFilter==='LRC'?'active':''}" data-cert="LRC">LRC</button>
+        <button class="cert-tab ${state.certFilter==='UBI'?'active':''}" data-cert="UBI">UBI</button>
+        <button class="cert-tab ${state.certFilter==='+UBI'?'active':''}" data-cert="+UBI">+UBI</button>
+        <button class="cert-tab ${state.certFilter==='ALL'?'active':''}" data-cert="ALL">Alle</button>
+      </div>
+    </section>
+
+    <div id="certSwipeViewport" class="quiz-swipe-viewport">
+      <div id="certSwipeArea" class="quiz-swipe-area">${certContentHtml()}</div>
+    </div>
+  `;
+
+  // Zertifikat-Tabs: normaler Klick wählt direkt
+  root.querySelectorAll('.cert-tab').forEach(btn => {
+    btn.addEventListener('click', () => applyCertFilter(btn.getAttribute('data-cert')));
+  });
+  // ...und Streichen über die Tab-Leiste wählt schon live beim Drüberfahren (Maus oder Finger)
+  attachCertTabDragPreview(document.getElementById('certTabsBar'));
+
+  bindCertContentListeners();
+
+  // Wischen über den Inhalt wechselt zum nächsten/vorherigen Zertifikat-Tab
+  attachSwipeHandlers(document.getElementById('certSwipeArea'), {
+    canForward: () => CERT_TAB_ORDER.indexOf(state.certFilter) < CERT_TAB_ORDER.length - 1,
+    canBackward: () => CERT_TAB_ORDER.indexOf(state.certFilter) > 0,
+    onValidSwipe: (forward, el) => {
+      runSlideTransition(el, forward, 'quiz-swipe-area', () => {
+        const idx = CERT_TAB_ORDER.indexOf(state.certFilter);
+        state.certFilter = CERT_TAB_ORDER[idx + (forward ? 1 : -1)];
+        state.selectedCats = selectedCatsForCertFilter(state.certFilter);
+        updateCertTabsActiveUI();
+      }, certContentHtml);
+    },
   });
 
   // Üben/Prüfen-Umschalter
@@ -478,25 +552,34 @@ function submitExam(timedOut) {
 
 
 /* ---------- Prüfungs-Quiz-Screen ---------- */
-function renderExamQuiz() {
-  const group = state.examGroup;
+function renderExamQuestionPanelInner() {
   const id = state.queue[state.currentIndex];
   const q = QUESTIONS.find(x => x.id === id);
-  const total = state.queue.length;
-  const pos = state.currentIndex + 1;
-  const isLast = pos >= total;
-  const label = EXAM_GROUP_LABEL[group];
-
   if (!state.examShuffled[id]) state.examShuffled[id] = shuffle(q.o);
   const opts = state.examShuffled[id];
   const given = state.examAnswers[id];
-
-  const remaining = state.examTimeLimitSec - Math.floor((Date.now() - state.examStartedAt) / 1000);
 
   const optHtml = opts.map((opt, i) => {
     const selected = given === opt ? ' selected' : '';
     return `<button class="option exam-option${selected}" data-idx="${i}">${escapeHtml(opt)}</button>`;
   }).join('');
+
+  return `
+      <section class="panel question-panel">
+        <p class="question-id">${displayNumber(q)}</p>
+        <h2 class="question-text">${escapeHtml(q.q)}</h2>
+        <div class="options">${optHtml}</div>
+      </section>`;
+}
+
+function renderExamQuiz() {
+  const group = state.examGroup;
+  const total = state.queue.length;
+  const pos = state.currentIndex + 1;
+  const isLast = pos >= total;
+  const label = EXAM_GROUP_LABEL[group];
+
+  const remaining = state.examTimeLimitSec - Math.floor((Date.now() - state.examStartedAt) / 1000);
 
   root.innerHTML = `
     <header class="header quiz-header">
@@ -511,11 +594,9 @@ function renderExamQuiz() {
       <button id="examSubmitEarlyBtn" class="btn-link">Prüfung jetzt abgeben</button>
     </div>
 
-    <section class="panel question-panel">
-      <p class="question-id">${displayNumber(q)}</p>
-      <h2 class="question-text">${escapeHtml(q.q)}</h2>
-      <div class="options">${optHtml}</div>
-    </section>
+    <div id="examSwipeViewport" class="quiz-swipe-viewport">
+      <div id="examSwipeArea" class="quiz-swipe-area">${renderExamQuestionPanelInner()}</div>
+    </div>
 
     <section class="panel actions quiz-actions">
       ${state.currentIndex > 0 ? `<button id="examPrevBtn" class="btn-secondary action-back">← Zurück</button>` : ''}
@@ -525,12 +606,8 @@ function renderExamQuiz() {
     </section>
   `;
 
-  root.querySelectorAll('.exam-option').forEach(btn => {
-    btn.addEventListener('click', () => {
-      state.examAnswers[id] = opts[+btn.getAttribute('data-idx')];
-      render();
-    });
-  });
+  bindExamOptionListeners();
+
   document.getElementById('examPrevBtn')?.addEventListener('click', () => {
     state.currentIndex--; render();
   });
@@ -546,6 +623,27 @@ function renderExamQuiz() {
       state.screen = 'select';
       render();
     }
+  });
+
+  attachSwipeHandlers(document.getElementById('examSwipeArea'), {
+    canForward: () => state.currentIndex + 1 < state.queue.length,
+    canBackward: () => state.currentIndex > 0,
+    onValidSwipe: (forward, el) => {
+      runSlideTransition(el, forward, 'quiz-swipe-area', () => {
+        if (forward) state.currentIndex++; else state.currentIndex--;
+      }, renderExamQuestionPanelInner);
+    },
+  });
+}
+
+function bindExamOptionListeners() {
+  const id = state.queue[state.currentIndex];
+  const opts = state.examShuffled[id];
+  root.querySelectorAll('.exam-option').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.examAnswers[id] = opts[+btn.getAttribute('data-idx')];
+      render();
+    });
   });
 }
 
@@ -631,43 +729,61 @@ const SWIPE_RESTRAINT = 90;    // max. erlaubte vertikale Abweichung in px
 const SWIPE_SLIDE_MS = 220;    // Dauer des synchronen Übergangs (alt raus + neu rein gleichzeitig)
 const SWIPE_SNAPBACK_MS = 150;
 
-function attachSwipeHandlers(el) {
+// Generischer horizontaler Wisch-Handler mit Drag-Follow + Totzone (siehe DEAD_ZONE).
+// config:
+//   canForward()/canBackward(): ob in die jeweilige Richtung gerade navigiert werden darf
+//   onValidSwipe(forward, el): wird bei erfolgreichem Wisch aufgerufen, übernimmt die Animation/den Übergang
+function attachSwipeHandlers(el, config) {
   if (!el) return;
 
-  let startX = 0, startY = 0, curX = 0, curY = 0, dragging = false, pointerId = null;
+  const DEAD_ZONE = 8; // px Bewegung, bevor wir es als echten Wisch werten und den Pointer einfangen
+  let startX = 0, startY = 0, curX = 0, curY = 0, tracking = false, capturing = false, pointerId = null;
 
   el.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    dragging = true;
+    tracking = true;
+    capturing = false;
     startX = curX = e.clientX;
     startY = curY = e.clientY;
     pointerId = e.pointerId;
-    try { el.setPointerCapture(pointerId); } catch (_) {}
-    el.style.transition = 'none';
+    // WICHTIG: hier noch KEIN setPointerCapture — sonst verliert ein einfacher Klick auf einen
+    // Options-Button sein click-Event (siehe Totzone unten).
   });
 
   el.addEventListener('pointermove', (e) => {
-    if (!dragging) return;
+    if (!tracking) return;
     curX = e.clientX;
     curY = e.clientY;
+
+    if (!capturing) {
+      // Erst bei echter Bewegung außerhalb der Totzone als Wisch werten und Pointer einfangen.
+      if (Math.abs(curX - startX) < DEAD_ZONE && Math.abs(curY - startY) < DEAD_ZONE) return;
+      capturing = true;
+      try { el.setPointerCapture(pointerId); } catch (_) {}
+      el.style.transition = 'none';
+    }
+
     const dy = curY - startY;
     if (Math.abs(dy) > SWIPE_RESTRAINT) return; // eher vertikales Scrollen, nicht mitziehen
     let dx = curX - startX;
     const wantsForward = dx < 0;
-    const allowed = wantsForward ? state.answered : state.currentIndex > 0;
+    const allowed = wantsForward ? config.canForward() : config.canBackward();
     if (!allowed) dx *= 0.28; // Gummiband-Effekt, wenn Richtung gerade nicht gültig ist
     el.style.transform = `translateX(${dx}px)`;
   });
 
-  function endDrag(e) {
-    if (!dragging) return;
-    dragging = false;
+  function endDrag() {
+    if (!tracking) return;
+    tracking = false;
+
+    if (!capturing) return; // war nur ein Klick/Tap, kein Wisch — nichts zu tun, Klick lief normal durch
+
     if (pointerId != null) { try { el.releasePointerCapture(pointerId); } catch (_) {} }
 
     const dx = curX - startX;
     const dy = curY - startY;
     const forward = dx < 0;
-    const allowed = forward ? state.answered : state.currentIndex > 0;
+    const allowed = forward ? config.canForward() : config.canBackward();
     const valid = allowed && Math.abs(dx) > SWIPE_THRESHOLD && Math.abs(dy) < SWIPE_RESTRAINT;
 
     if (!valid) {
@@ -676,31 +792,22 @@ function attachSwipeHandlers(el) {
       return;
     }
 
-    if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
-    const isLastForward = forward && (state.currentIndex + 1 >= state.queue.length);
-
-    if (isLastForward) {
-      // Rundenende: die Auswertung ist ein komplett anderer Screen, dafür reicht ein einfacher Exit
-      el.style.transition = `transform ${SWIPE_SLIDE_MS}ms ease-in, opacity ${SWIPE_SLIDE_MS}ms ease-in`;
-      el.style.transform = 'translateX(-100%)';
-      el.style.opacity = '0';
-      setTimeout(() => nextQuestion(), SWIPE_SLIDE_MS);
-      return;
-    }
-
-    runSlideTransition(el, forward);
+    config.onValidSwipe(forward, el);
   }
 
   el.addEventListener('pointerup', endDrag);
   el.addEventListener('pointercancel', endDrag);
 }
 
-// Bewegt das alte und das neue Fragen-Panel GLEICHZEITIG um dieselbe Strecke in dieselbe
-// Richtung (wie ein Filmstreifen) – dadurch berühren sich beide Panels durchgehend und es
-// entsteht keine sichtbare Lücke zum Hintergrund, egal wie lang der Übergang dauert.
-function runSlideTransition(oldPanel, forward) {
+// Bewegt das alte und das neue Panel GLEICHZEITIG um dieselbe Strecke in dieselbe Richtung
+// (wie ein Filmstreifen) – dadurch berühren sich beide Panels durchgehend und es entsteht
+// keine sichtbare Lücke zum Hintergrund, egal wie lang der Übergang dauert.
+// panelClass: CSS-Klasse für das neue Panel (gleich wie das alte)
+// advanceFn: schaltet den Zustand weiter (z.B. currentIndex++/-- + Fragen laden) — OHNE render()
+// buildInnerFn: liefert das innerHTML für das neue Panel, nachdem advanceFn gelaufen ist
+function runSlideTransition(oldPanel, forward, panelClass, advanceFn, buildInnerFn) {
   const viewport = oldPanel.parentElement;
-  if (!viewport) { forward ? nextQuestion() : prevQuestion(); return; }
+  if (!viewport) { advanceFn(); render(); return; }
 
   // Höhe kurz fixieren: solange beide Panels absolut positioniert übereinanderliegen,
   // würde der Viewport sonst kollabieren (kein normaler Fluss-Inhalt mehr vorhanden).
@@ -710,12 +817,11 @@ function runSlideTransition(oldPanel, forward) {
 
   // Zustand fortschalten und neuen Inhalt bauen — ohne kompletten Re-Render, damit wir das
   // alte Panel noch für die Animation zur Verfügung haben.
-  if (forward) state.currentIndex++; else state.currentIndex--;
-  loadCurrentQuestion();
+  advanceFn();
 
   const newPanel = document.createElement('div');
-  newPanel.className = 'quiz-swipe-area';
-  newPanel.innerHTML = renderQuestionPanelInner();
+  newPanel.className = panelClass;
+  newPanel.innerHTML = buildInnerFn();
 
   Object.assign(oldPanel.style, { position: 'absolute', top: '0', left: '0', width: '100%', margin: '0' });
   Object.assign(newPanel.style, {
@@ -836,7 +942,26 @@ function renderQuiz() {
     state.screen = 'select'; render();
   });
 
-  attachSwipeHandlers(document.getElementById('quizSwipeArea'));
+  attachSwipeHandlers(document.getElementById('quizSwipeArea'), {
+    canForward: () => state.answered,
+    canBackward: () => state.currentIndex > 0,
+    onValidSwipe: (forward, el) => {
+      if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
+      const isLastForward = forward && (state.currentIndex + 1 >= state.queue.length);
+      if (isLastForward) {
+        // Rundenende: die Auswertung ist ein komplett anderer Screen, dafür reicht ein einfacher Exit
+        el.style.transition = `transform ${SWIPE_SLIDE_MS}ms ease-in, opacity ${SWIPE_SLIDE_MS}ms ease-in`;
+        el.style.transform = 'translateX(-100%)';
+        el.style.opacity = '0';
+        setTimeout(() => nextQuestion(), SWIPE_SLIDE_MS);
+        return;
+      }
+      runSlideTransition(el, forward, 'quiz-swipe-area', () => {
+        if (forward) state.currentIndex++; else state.currentIndex--;
+        loadCurrentQuestion();
+      }, renderQuestionPanelInner);
+    },
+  });
 
   if (!state.answered) {
     root.querySelectorAll('.option').forEach(btn => {
