@@ -1,13 +1,42 @@
 'use strict';
 
 /* ---------- Persistenz ---------- */
-const STORAGE_KEY = 'src_trainer_progress_v2';
+const STORAGE_KEY_OLD = 'src_trainer_progress_v2'; // numerische IDs (bis v13)
+const STORAGE_KEY = 'src_trainer_progress_v3';     // String-IDs ("SRC-042" usw., ab v14)
+
+// Rechnet eine alte numerische ID in die neue String-ID um (gleiche Formel wie beim
+// einmaligen Umbau von data.js/explanations.js). Gibt null zurück, falls kein gültiges
+// altes Format (z.B. wenn schon migriert wurde).
+function migrateOldId(oldIdRaw) {
+  const oldId = Number(oldIdRaw);
+  if (!Number.isInteger(oldId)) return null;
+  if (oldId >= 1 && oldId <= 180) return 'SRC-' + String(oldId).padStart(3, '0');
+  if (oldId >= 1001 && oldId <= 1076) return 'LRC-' + String(oldId - 1000).padStart(3, '0');
+  if (oldId >= 1077 && oldId <= 1206) return 'UBI-' + String(oldId - 1076).padStart(3, '0');
+  return null;
+}
 
 function loadProgress() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch (e) { return {}; }
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* fällt durch auf Migration */ }
+
+  // Kein neuer Fortschritt vorhanden — versuchen, alten (numerische IDs) zu übernehmen.
+  try {
+    const oldRaw = localStorage.getItem(STORAGE_KEY_OLD);
+    if (!oldRaw) return {};
+    const oldProgress = JSON.parse(oldRaw);
+    const migrated = {};
+    for (const [oldId, entry] of Object.entries(oldProgress)) {
+      const newId = migrateOldId(oldId);
+      if (newId) migrated[newId] = entry;
+    }
+    saveProgress(migrated); // gleich unter dem neuen Key sichern, damit's nur einmal passiert
+    return migrated;
+  } catch (e) {
+    return {};
+  }
 }
 
 function saveProgress(p) {
@@ -454,10 +483,10 @@ function runSlideTransition(oldPanel, forward) {
 }
 
 
-/* ---------- Anzeige-Nummer (z.B. "LRC-003") aus offizieller Katalognummer ---------- */
+/* ---------- Anzeige-Nummer ---------- */
+// Die ID ist jetzt selbst schon im Anzeigeformat ("SRC-042" usw.), kein Umrechnen mehr nötig.
 function displayNumber(q) {
-  const cert = CATEGORIES[q.cat].cert; // 'SRC' | 'LRC' | 'UBI'
-  return `${cert}-${String(q.n).padStart(3, '0')}`;
+  return q.id;
 }
 
 /* ---------- QUIZ ---------- */
