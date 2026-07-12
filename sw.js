@@ -1,10 +1,11 @@
-const CACHE_NAME = 'src-trainer-v15';
+const CACHE_NAME = 'src-trainer-v16';
 const ASSETS = [
   './',
   './index.html',
   './style.css',
   './app.js',
   './data.js',
+  './exams.js',
   './explanations.js',
   './manifest.json',
   './icons/icon-192.png',

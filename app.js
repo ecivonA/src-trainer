@@ -63,6 +63,31 @@ function markWrongOrUnknown(id) {
 function resetAllProgress() {
   progress = {};
   saveProgress(progress);
+  examResults = {};
+  saveExamResults(examResults);
+}
+
+/* ---------- Prüfungsmodus: Ergebnis-Speicher ---------- */
+const EXAM_RESULTS_KEY = 'src_trainer_exam_results_v1';
+const EXAM_GROUP_LABEL = { SRC: 'SRC', LRC: 'LRC', UBI: 'UBI', UBI_ERG: '+UBI' };
+
+function loadExamResults() {
+  try {
+    const raw = localStorage.getItem(EXAM_RESULTS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) { return {}; }
+}
+function saveExamResults(r) {
+  try { localStorage.setItem(EXAM_RESULTS_KEY, JSON.stringify(r)); } catch (e) {}
+}
+let examResults = loadExamResults();
+
+function examGroupsForFilter(certFilter) {
+  if (certFilter === 'SRC') return ['SRC'];
+  if (certFilter === 'LRC') return ['LRC'];
+  if (certFilter === 'UBI') return ['UBI'];
+  if (certFilter === '+UBI') return ['UBI_ERG'];
+  return ['SRC', 'LRC', 'UBI', 'UBI_ERG'];
 }
 
 /* ---------- Hilfs ---------- */
@@ -108,7 +133,8 @@ function statsFor(catKeys) {
 
 /* ---------- App State ---------- */
 const state = {
-  screen: 'select',       // 'select' | 'quiz' | 'summary'
+  screen: 'select',       // 'select' | 'quiz' | 'summary' | 'examSummary'
+  mode: 'practice',       // 'practice' | 'exam'
   certFilter: 'SRC',      // 'SRC' | 'LRC' | 'UBI' | '+UBI' | 'ALL'
   selectedCats: certCats('SRC'),
   filterMode: 'unsicher', // 'unsicher' | 'alle'
@@ -123,14 +149,26 @@ const state = {
   frontier: 0,           // höchster bisher erreichter Index
   autoAdvanceTimer: null,
   freshlyAnswered: false, // true = Antwort gerade eben live gegeben (noch nicht via Zurück/Weiter navigiert)
+
+  // Prüfungsmodus
+  examGroup: null,        // 'SRC' | 'LRC' | 'UBI' | 'UBI_ERG'
+  examBogenN: null,
+  examAnswers: {},         // id -> gewählter Text (frei änderbar, keine Auswertung bis Abgabe)
+  examShuffled: {},        // id -> gemischte Optionen (pro Frage einmal gemischt, bleibt stabil beim Blättern)
+  examTimeLimitSec: 0,
+  examStartedAt: 0,
+  examTimerInterval: null,
+  examResult: null,        // nach Abgabe: {group, n, passed, correct, wrong, total, timedOut, elapsedSec, perQuestion}
+  examExpanded: new Set(), // welche Fragen in der Auswertung aufgeklappt sind
 };
 
 /* ---------- Render-Dispatcher ---------- */
 const root = document.getElementById('app');
 function render() {
   if (state.screen === 'select') renderSelect();
-  else if (state.screen === 'quiz') renderQuiz();
+  else if (state.screen === 'quiz') { if (state.mode === 'exam') renderExamQuiz(); else renderQuiz(); }
   else if (state.screen === 'summary') renderSummary();
+  else if (state.screen === 'examSummary') renderExamSummary();
 }
 
 /* ---------- SELECT ---------- */
@@ -174,7 +212,33 @@ function renderSelect() {
     }).join('');
   }
 
-  const selStats = state.certFilter === '+UBI' ? statsForErgaenzung() : statsFor(state.selectedCats);
+  function examBogenRows(group) {
+    const meta = EXAM_META[group];
+    const passNeeded = meta.count - meta.maxWrong; // Mindestanzahl richtiger Antworten
+    const tickPct = Math.round(passNeeded / meta.count * 100);
+    return EXAMS[group].map(bogen => {
+      const qs = bogen.qs;
+      const mastered = qs.filter(id => !isUnsicher(id)).length;
+      const half = qs.filter(id => getEntry(id).streak === 1).length;
+      const pctMastered = Math.round(mastered / qs.length * 100);
+      const pctSeen = Math.round((mastered + half) / qs.length * 100);
+      const resultKey = `${group}-${bogen.n}`;
+      const result = examResults[resultKey];
+      const passedClass = result && result.passed ? 'exam-row-passed' : '';
+      return `
+        <button class="cat-title-btn exam-bogen-row ${passedClass}" data-exam-group="${group}" data-exam-n="${bogen.n}">
+          <span class="cat-title">Prüfbogen ${bogen.n}${result ? (result.passed ? ' ✓' : ' ✗') : ''}</span>
+          <span class="cat-meta">${mastered}/${qs.length}</span>
+          <span class="cat-bar">
+            <span class="cat-bar-half" style="width:${pctSeen}%"></span>
+            <span class="cat-bar-fill" style="width:${pctMastered}%"></span>
+            <span class="cat-bar-tick" style="left:${tickPct}%" title="Mindestens ${passNeeded}/${qs.length} richtig zum Bestehen"></span>
+          </span>
+        </button>`;
+    }).join('');
+  }
+
+
   const poolCount = state.filterMode === 'unsicher' ? selStats.unsicher : selStats.total;
 
   root.innerHTML = `
@@ -188,6 +252,13 @@ function renderSelect() {
     </header>
 
     <section class="panel">
+      <div class="mode-toggle">
+        <button class="mode-toggle-btn ${state.mode==='practice'?'active':''}" data-mode="practice">Üben</button>
+        <button class="mode-toggle-btn ${state.mode==='exam'?'active':''}" data-mode="exam">Prüfen</button>
+      </div>
+    </section>
+
+    <section class="panel">
       <h2>Zertifikat</h2>
       <div class="cert-tabs">
         <button class="cert-tab ${state.certFilter==='SRC'?'active':''}" data-cert="SRC">SRC</button>
@@ -198,6 +269,7 @@ function renderSelect() {
       </div>
     </section>
 
+    ${state.mode === 'practice' ? `
     <section class="panel">
       <h2>Kategorien</h2>
       ${(state.certFilter === 'SRC' || state.certFilter === 'ALL') ? `
@@ -237,6 +309,19 @@ function renderSelect() {
       <button id="startBtn" class="btn-primary" ${poolCount===0?'disabled':''}>Lernrunde starten</button>
       <button id="resetBtn" class="btn-danger-link">Gesamten Fortschritt zurücksetzen</button>
     </section>
+    ` : `
+    <section class="panel">
+      <h2>Prüfbögen</h2>
+      ${examGroupsForFilter(state.certFilter).map(group => `
+        ${state.certFilter === 'ALL' ? `<p class="cert-label cert-${EXAM_GROUP_LABEL[group].toLowerCase().replace('+','')}">${EXAM_GROUP_LABEL[group]}</p>` : ''}
+        <div class="cat-list">${examBogenRows(group)}</div>
+      `).join('')}
+    </section>
+
+    <section class="panel actions">
+      <button id="resetBtn" class="btn-danger-link">Gesamten Fortschritt zurücksetzen</button>
+    </section>
+    `}
   `;
 
   // Zertifikat-Tabs
@@ -265,11 +350,20 @@ function renderSelect() {
     });
   });
 
-  // Schnellstart per Klick auf Kategorie-Titel
-  root.querySelectorAll('.cat-title-btn').forEach(btn => {
+  // Schnellstart per Klick auf Kategorie-Titel (nicht die Prüfbogen-Zeilen, die haben kein data-quickstart)
+  root.querySelectorAll('.cat-title-btn[data-quickstart]').forEach(btn => {
     btn.addEventListener('click', () => {
       const key = btn.getAttribute('data-quickstart');
       startSession(key);
+    });
+  });
+
+  // Prüfbogen-Zeilen (Prüfungsmodus): Klick startet direkt die Prüfungssimulation
+  root.querySelectorAll('.exam-bogen-row').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const group = btn.getAttribute('data-exam-group');
+      const n = parseInt(btn.getAttribute('data-exam-n'), 10);
+      startExam(group, n);
     });
   });
 
@@ -279,7 +373,7 @@ function renderSelect() {
   });
 
   // Alle / Keine
-  document.getElementById('selAll').addEventListener('click', () => {
+  document.getElementById('selAll')?.addEventListener('click', () => {
     const visible = state.certFilter === 'SRC' ? certCats('SRC')
                   : state.certFilter === 'LRC' ? certCats('LRC')
                   : (state.certFilter === 'UBI' || state.certFilter === '+UBI') ? certCats('UBI')
@@ -287,19 +381,183 @@ function renderSelect() {
     state.selectedCats = visible;
     render();
   });
-  document.getElementById('selNone').addEventListener('click', () => {
+  document.getElementById('selNone')?.addEventListener('click', () => {
     state.selectedCats = []; render();
   });
 
-  document.getElementById('startBtn').addEventListener('click', () => startSession());
-  document.getElementById('resetBtn').addEventListener('click', () => {
-    if (confirm('Wirklich den gesamten Lernfortschritt löschen?')) {
+  document.getElementById('startBtn')?.addEventListener('click', () => startSession());
+  document.getElementById('resetBtn')?.addEventListener('click', () => {
+    if (confirm('Wirklich den gesamten Lernfortschritt löschen (inkl. Prüfungsergebnisse)?')) {
       resetAllProgress(); render();
+    }
+  });
+
+  // Üben/Prüfen-Umschalter
+  root.querySelectorAll('.mode-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.mode = btn.getAttribute('data-mode');
+      render();
+    });
+  });
+}
+
+/* ---------- Prüfungssimulation ---------- */
+function startExam(group, n) {
+  const bogen = EXAMS[group].find(b => b.n === n);
+  if (!bogen) return;
+  const meta = EXAM_META[group];
+
+  state.mode = 'exam';
+  state.examGroup = group;
+  state.examBogenN = n;
+  state.queue = bogen.qs.slice(); // Original-Reihenfolge des Prüfbogens, nicht gemischt
+  state.currentIndex = 0;
+  state.examAnswers = {};
+  state.examShuffled = {};
+  state.examResult = null;
+  state.examExpanded = new Set();
+  state.examTimeLimitSec = meta.time * 60;
+  state.examStartedAt = Date.now();
+  state.screen = 'quiz';
+
+  if (state.examTimerInterval) clearInterval(state.examTimerInterval);
+  state.examTimerInterval = setInterval(tickExamTimer, 1000);
+
+  render();
+}
+
+function tickExamTimer() {
+  const remaining = state.examTimeLimitSec - Math.floor((Date.now() - state.examStartedAt) / 1000);
+  if (remaining <= 0) {
+    clearInterval(state.examTimerInterval);
+    state.examTimerInterval = null;
+    submitExam(true);
+    return;
+  }
+  const el = document.getElementById('examTimerDisplay');
+  if (el) el.textContent = formatExamTime(remaining);
+}
+
+function formatExamTime(totalSeconds) {
+  const s = Math.max(0, totalSeconds);
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}:${String(sec).padStart(2, '0')}`;
+}
+
+function submitExam(timedOut) {
+  if (state.examTimerInterval) { clearInterval(state.examTimerInterval); state.examTimerInterval = null; }
+
+  const group = state.examGroup;
+  const n = state.examBogenN;
+  const meta = EXAM_META[group];
+  const ids = state.queue;
+
+  let correctCount = 0;
+  const perQuestion = ids.map(id => {
+    const q = QUESTIONS.find(x => x.id === id);
+    const given = state.examAnswers[id] ?? null;
+    const isCorrect = given === q.o[0];
+    if (isCorrect) { correctCount++; markCorrect(id); } else { markWrongOrUnknown(id); }
+    return { id, given, correctText: q.o[0], isCorrect };
+  });
+
+  const wrongCount = ids.length - correctCount;
+  const passed = wrongCount <= meta.maxWrong;
+  const elapsedSec = Math.min(meta.time * 60, Math.round((Date.now() - state.examStartedAt) / 1000));
+
+  examResults[`${group}-${n}`] = {
+    passed, correct: correctCount, wrong: wrongCount, at: new Date().toISOString(),
+  };
+  saveExamResults(examResults);
+
+  state.examResult = { group, n, passed, correct: correctCount, wrong: wrongCount, total: ids.length, timedOut, elapsedSec, perQuestion };
+  state.screen = 'examSummary';
+  render();
+}
+
+
+/* ---------- Prüfungs-Quiz-Screen ---------- */
+function renderExamQuiz() {
+  const group = state.examGroup;
+  const id = state.queue[state.currentIndex];
+  const q = QUESTIONS.find(x => x.id === id);
+  const total = state.queue.length;
+  const pos = state.currentIndex + 1;
+  const isLast = pos >= total;
+  const label = EXAM_GROUP_LABEL[group];
+
+  if (!state.examShuffled[id]) state.examShuffled[id] = shuffle(q.o);
+  const opts = state.examShuffled[id];
+  const given = state.examAnswers[id];
+
+  const remaining = state.examTimeLimitSec - Math.floor((Date.now() - state.examStartedAt) / 1000);
+
+  const optHtml = opts.map((opt, i) => {
+    const selected = given === opt ? ' selected' : '';
+    return `<button class="option exam-option${selected}" data-idx="${i}">${escapeHtml(opt)}</button>`;
+  }).join('');
+
+  root.innerHTML = `
+    <header class="header quiz-header">
+      <button id="examExitBtn" class="btn-link">&larr; Auswahl</button>
+      <span class="cert-badge cert-${label.toLowerCase().replace('+','')}">${label} · Bogen ${state.examBogenN}</span>
+      <p class="progress-text">${pos} / ${total}</p>
+    </header>
+    <div class="progress-bar"><div class="progress-bar-fill" style="width:${(pos-1)/total*100}%"></div></div>
+
+    <div class="exam-timer-row">
+      <span class="exam-timer">⏱ <span id="examTimerDisplay">${formatExamTime(remaining)}</span></span>
+      <button id="examSubmitEarlyBtn" class="btn-link">Prüfung jetzt abgeben</button>
+    </div>
+
+    <section class="panel question-panel">
+      <p class="question-id">${displayNumber(q)}</p>
+      <h2 class="question-text">${escapeHtml(q.q)}</h2>
+      <div class="options">${optHtml}</div>
+    </section>
+
+    <section class="panel actions quiz-actions">
+      ${state.currentIndex > 0 ? `<button id="examPrevBtn" class="btn-secondary action-back">← Zurück</button>` : ''}
+      ${isLast
+        ? `<button id="examSubmitBtn" class="btn-primary action-main">Prüfung abgeben</button>`
+        : `<button id="examNextBtn" class="btn-primary action-main">Weiter →</button>`}
+    </section>
+  `;
+
+  root.querySelectorAll('.exam-option').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.examAnswers[id] = opts[+btn.getAttribute('data-idx')];
+      render();
+    });
+  });
+  document.getElementById('examPrevBtn')?.addEventListener('click', () => {
+    state.currentIndex--; render();
+  });
+  document.getElementById('examNextBtn')?.addEventListener('click', () => {
+    state.currentIndex++; render();
+  });
+  document.getElementById('examSubmitBtn')?.addEventListener('click', () => confirmSubmitExam());
+  document.getElementById('examSubmitEarlyBtn').addEventListener('click', () => confirmSubmitExam());
+  document.getElementById('examExitBtn').addEventListener('click', () => {
+    if (confirm('Prüfung wirklich abbrechen? Der Fortschritt in dieser Prüfungssimulation geht verloren.')) {
+      if (state.examTimerInterval) { clearInterval(state.examTimerInterval); state.examTimerInterval = null; }
+      state.mode = 'practice';
+      state.screen = 'select';
+      render();
     }
   });
 }
 
-/* ---------- SESSION ---------- */
+function confirmSubmitExam() {
+  const answeredCount = state.queue.filter(qid => state.examAnswers[qid] !== undefined).length;
+  const unanswered = state.queue.length - answeredCount;
+  const msg = unanswered > 0
+    ? `${unanswered} Frage${unanswered===1?'':'n'} noch unbeantwortet. Trotzdem abgeben?`
+    : 'Prüfung jetzt abgeben?';
+  if (confirm(msg)) submitExam(false);
+}
+
 function startSession(catOverride) {
   // catOverride: optional single category key for quick-start
   if (catOverride) {
@@ -678,6 +936,83 @@ function renderSummary() {
   document.getElementById('againBtn').addEventListener('click', () => startSession());
   document.getElementById('toSelectBtn').addEventListener('click', () => {
     state.screen = 'select'; render();
+  });
+}
+
+/* ---------- Prüfungs-Auswertung ---------- */
+function renderExamSummary() {
+  const r = state.examResult;
+  const label = EXAM_GROUP_LABEL[r.group];
+  const meta = EXAM_META[r.group];
+  const passNeeded = meta.count - meta.maxWrong;
+
+  const rows = r.perQuestion.map((pq, i) => {
+    const q = QUESTIONS.find(x => x.id === pq.id);
+    const icon = pq.isCorrect ? '<span class="exam-check-ok">✔</span>' : '<span class="exam-check-bad">✘</span>';
+    const expanded = state.examExpanded.has(pq.id);
+    const explanation = (typeof EXPLANATIONS !== 'undefined') ? (EXPLANATIONS[pq.id] || null) : null;
+
+    const detailHtml = expanded ? `
+      <div class="exam-result-detail">
+        <p class="question-text">${escapeHtml(q.q)}</p>
+        <div class="options">
+          ${q.o.map(opt => {
+            let cls = 'option disabled';
+            if (opt === pq.correctText) cls += ' correct';
+            else if (opt === pq.given) cls += ' wrong';
+            return `<div class="${cls}">${escapeHtml(opt)}</div>`;
+          }).join('')}
+          ${pq.given === null ? `<div class="option wrong dontknow-marker">Nicht beantwortet</div>` : ''}
+        </div>
+        ${explanation ? `
+          <section class="panel explanation-panel">
+            <p class="explanation-label">💡 Warum ist das richtig?</p>
+            <p class="explanation-text">${escapeHtml(explanation)}</p>
+          </section>` : ''}
+      </div>` : '';
+
+    return `
+      <div class="exam-result-row">
+        <button class="exam-result-line ${pq.isCorrect ? 'exam-result-line-ok' : ''}" data-toggle-id="${pq.id}">
+          ${icon} <span class="exam-result-num">${displayNumber(q)}</span>
+        </button>
+        ${detailHtml}
+      </div>`;
+  }).join('');
+
+  root.innerHTML = `
+    <header class="header">
+      <h1>${r.passed ? '✅ Bestanden' : '❌ Nicht bestanden'}</h1>
+      <p class="sub">${label} · Prüfbogen ${r.n}${r.timedOut ? ' · Zeit abgelaufen' : ''}</p>
+    </header>
+    <section class="panel summary-panel">
+      <p class="summary-line correct">Richtig: <strong>${r.correct} / ${r.total}</strong> (mind. ${passNeeded} nötig)</p>
+      <p class="summary-line wrong">Falsch: <strong>${r.wrong}</strong> (max. ${meta.maxWrong} erlaubt)</p>
+      <p class="summary-line">Zeit: <strong>${formatExamTime(r.elapsedSec)}</strong> von ${meta.time}:00</p>
+    </section>
+    <section class="panel">
+      <h2>Fragen im Detail</h2>
+      <div class="exam-result-list">${rows}</div>
+    </section>
+    <section class="panel actions">
+      <button id="examAgainBtn" class="btn-primary">Bogen wiederholen</button>
+      <button id="examToSelectBtn" class="btn-secondary">Zurück zur Auswahl</button>
+    </section>
+  `;
+
+  root.querySelectorAll('[data-toggle-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const qid = btn.getAttribute('data-toggle-id');
+      if (state.examExpanded.has(qid)) state.examExpanded.delete(qid);
+      else state.examExpanded.add(qid);
+      render();
+    });
+  });
+  document.getElementById('examAgainBtn').addEventListener('click', () => startExam(r.group, r.n));
+  document.getElementById('examToSelectBtn').addEventListener('click', () => {
+    state.mode = 'exam';
+    state.screen = 'select';
+    render();
   });
 }
 

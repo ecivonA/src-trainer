@@ -495,3 +495,89 @@ button {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+
+/* ── Prüfungsmodus ───────────────────────────────────────────────────── */
+.mode-toggle {
+  display: flex;
+  gap: 8px;
+}
+.mode-toggle-btn {
+  flex: 1;
+  padding: 10px 0;
+  border: 1px solid var(--navy);
+  border-radius: 10px;
+  background: white;
+  color: var(--navy);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+.mode-toggle-btn.active {
+  background: var(--navy);
+  color: white;
+}
+
+/* Fehlerstrich im Fortschrittsbalken (Prüfbogen-Liste): Mindestanteil zum Bestehen */
+.cat-bar-tick {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--navy-dark);
+  transform: translateX(-1px);
+  z-index: 2;
+}
+
+.exam-row-passed .cat-title {
+  color: var(--green);
+}
+.exam-row-passed {
+  border: 1px solid var(--green) !important;
+  border-radius: 10px;
+  background: var(--green-bg) !important;
+}
+
+.exam-timer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 2px 4px;
+  font-size: 13px;
+}
+.exam-timer {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.exam-option.selected {
+  border-color: var(--navy);
+  background: #eaf1f8;
+}
+
+.exam-result-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.exam-result-row { }
+.exam-result-line {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 6px;
+  border: none;
+  background: none;
+  text-align: left;
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+.exam-result-line-ok { cursor: default; }
+.exam-check-ok { color: var(--green); }
+.exam-check-bad { color: var(--red); }
+.exam-result-num { font-variant-numeric: tabular-nums; }
+.exam-result-detail {
+  padding: 8px 6px 14px;
+  border-bottom: 1px solid var(--border);
+}
