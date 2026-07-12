@@ -582,3 +582,59 @@ button {
   padding: 8px 6px 14px;
   border-bottom: 1px solid var(--border);
 }
+
+/* ── Solider Warn-Button (z.B. im Bestätigungs-Dialog) ──────────────── */
+.btn-danger {
+  background: var(--red);
+  color: white;
+  border: none;
+  padding: 14px 18px;
+  border-radius: 10px;
+  font-weight: 600;
+  width: 100%;
+}
+
+/* ── Bestätigungs-Dialog (Ersatz für natives confirm()) ─────────────── */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 40, 69, 0.45); /* --navy-dark, transparent */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+  z-index: 1100;
+}
+.confirm-overlay.confirm-overlay-show {
+  opacity: 1;
+  pointer-events: auto;
+}
+.confirm-box {
+  background: white;
+  border-radius: 16px;
+  padding: 22px 20px;
+  width: 100%;
+  max-width: 340px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.25);
+  transform: translateY(6px);
+  transition: transform 0.18s ease;
+}
+.confirm-overlay.confirm-overlay-show .confirm-box {
+  transform: translateY(0);
+}
+.confirm-message {
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--navy-dark);
+  margin: 0 0 18px;
+}
+.confirm-actions {
+  display: flex;
+  gap: 10px;
+}
+.confirm-actions button {
+  flex: 1;
+}

@@ -349,9 +349,11 @@ function bindCertContentListeners() {
 
   document.getElementById('startBtn')?.addEventListener('click', () => startSession());
   document.getElementById('resetBtn')?.addEventListener('click', () => {
-    if (confirm('Wirklich den gesamten Lernfortschritt löschen (inkl. Prüfungsergebnisse)?')) {
-      resetAllProgress(); render();
-    }
+    showConfirmDialog(
+      'Wirklich den gesamten Lernfortschritt löschen (inkl. Prüfungsergebnisse)?',
+      () => { resetAllProgress(); render(); },
+      { confirmLabel: 'Löschen', cancelLabel: 'Abbrechen', danger: true }
+    );
   });
 }
 
@@ -617,12 +619,16 @@ function renderExamQuiz() {
   document.getElementById('examSubmitBtn')?.addEventListener('click', () => confirmSubmitExam());
   document.getElementById('examSubmitEarlyBtn').addEventListener('click', () => confirmSubmitExam());
   document.getElementById('examExitBtn').addEventListener('click', () => {
-    if (confirm('Prüfung wirklich abbrechen? Der Fortschritt in dieser Prüfungssimulation geht verloren.')) {
-      if (state.examTimerInterval) { clearInterval(state.examTimerInterval); state.examTimerInterval = null; }
-      state.mode = 'practice';
-      state.screen = 'select';
-      render();
-    }
+    showConfirmDialog(
+      'Prüfung wirklich abbrechen? Der Fortschritt in dieser Prüfungssimulation geht verloren.',
+      () => {
+        if (state.examTimerInterval) { clearInterval(state.examTimerInterval); state.examTimerInterval = null; }
+        state.mode = 'practice';
+        state.screen = 'select';
+        render();
+      },
+      { confirmLabel: 'Prüfung abbrechen', cancelLabel: 'Weitermachen', danger: true }
+    );
   });
 
   attachSwipeHandlers(document.getElementById('examSwipeArea'), {
@@ -653,7 +659,7 @@ function confirmSubmitExam() {
   const msg = unanswered > 0
     ? `${unanswered} Frage${unanswered===1?'':'n'} noch unbeantwortet. Trotzdem abgeben?`
     : 'Prüfung jetzt abgeben?';
-  if (confirm(msg)) submitExam(false);
+  showConfirmDialog(msg, () => submitExam(false), { confirmLabel: 'Abgeben', cancelLabel: 'Weitermachen' });
 }
 
 function startSession(catOverride) {
@@ -703,6 +709,45 @@ function loadCurrentQuestion() {
     state.selectedWrongText = null;
     state.freshlyAnswered = false;
   }
+}
+
+/* ---------- Bestätigungs-Dialog (Ersatz für natives confirm()) ---------- */
+// showConfirmDialog(nachricht, onBestaetigt, { confirmLabel, cancelLabel, danger })
+// onBestaetigt wird nur aufgerufen, wenn der Nutzer den Bestätigen-Button antippt.
+function showConfirmDialog(message, onConfirmed, opts = {}) {
+  const { confirmLabel = 'OK', cancelLabel = 'Abbrechen', danger = false } = opts;
+
+  let overlay = document.getElementById('confirmOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'confirmOverlay';
+    overlay.className = 'confirm-overlay';
+    document.body.appendChild(overlay);
+  }
+
+  overlay.innerHTML = `
+    <div class="confirm-box">
+      <p class="confirm-message">${escapeHtml(message)}</p>
+      <div class="confirm-actions">
+        <button id="confirmCancelBtn" class="btn-secondary">${escapeHtml(cancelLabel)}</button>
+        <button id="confirmOkBtn" class="${danger ? 'btn-danger' : 'btn-primary'}">${escapeHtml(confirmLabel)}</button>
+      </div>
+    </div>
+  `;
+
+  // Reflow erzwingen, damit die Einblende-Transition sauber greift, auch wenn der Dialog
+  // gerade erst neu ins DOM eingehängt wurde.
+  void overlay.offsetWidth;
+  overlay.classList.add('confirm-overlay-show');
+
+  function close() { overlay.classList.remove('confirm-overlay-show'); }
+
+  document.getElementById('confirmCancelBtn').addEventListener('click', close);
+  document.getElementById('confirmOkBtn').addEventListener('click', () => {
+    close();
+    onConfirmed();
+  });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
 }
 
 /* ---------- Toast (kurze Rückmeldung) ---------- */
