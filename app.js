@@ -238,7 +238,7 @@ function renderSelect() {
     }).join('');
   }
 
-
+  const selStats = state.certFilter === '+UBI' ? statsForErgaenzung() : statsFor(state.selectedCats);
   const poolCount = state.filterMode === 'unsicher' ? selStats.unsicher : selStats.total;
 
   root.innerHTML = `
