@@ -65,6 +65,36 @@ function resetAllProgress() {
   saveProgress(progress);
   examResults = {};
   saveExamResults(examResults);
+  bookmarks = {};
+  saveBookmarks(bookmarks);
+}
+
+/* ---------- Merker (Bookmarks) ---------- */
+const BOOKMARKS_KEY = 'src_trainer_bookmarks_v1';
+
+function loadBookmarks() {
+  try {
+    const raw = localStorage.getItem(BOOKMARKS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) { return {}; }
+}
+function saveBookmarks(b) {
+  try { localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(b)); } catch (e) {}
+}
+let bookmarks = loadBookmarks(); // { [id]: true }
+
+function isBookmarked(id) { return !!bookmarks[id]; }
+
+function toggleBookmark(id) {
+  if (bookmarks[id]) delete bookmarks[id];
+  else bookmarks[id] = true;
+  saveBookmarks(bookmarks);
+}
+
+// Gemerkte Fragen-IDs für ein Zertifikat (bzw. alle certKeys zusammen), in Katalog-Reihenfolge
+function bookmarkedIdsForCats(catKeys) {
+  const idsInOrder = QUESTIONS.filter(q => catKeys.includes(q.cat)).map(q => q.id);
+  return idsInOrder.filter(id => bookmarks[id]);
 }
 
 /* ---------- Prüfungsmodus: Ergebnis-Speicher ---------- */
@@ -106,7 +136,21 @@ function escapeHtml(str) {
 }
 
 function questionsForCats(catKeys) {
-  return QUESTIONS.filter(q => catKeys.includes(q.cat));
+  const out = [];
+  const seen = new Set();
+  for (const key of catKeys) {
+    let matched;
+    if (key === 'BOOKMARKS_UBI_ERG') {
+      matched = QUESTIONS.filter(q => q.e === 1 && bookmarks[q.id]);
+    } else if (key.startsWith('BOOKMARKS_')) {
+      const cert = key.slice('BOOKMARKS_'.length);
+      matched = QUESTIONS.filter(q => CATEGORIES[q.cat].cert === cert && bookmarks[q.id]);
+    } else {
+      matched = QUESTIONS.filter(q => q.cat === key);
+    }
+    for (const q of matched) { if (!seen.has(q.id)) { seen.add(q.id); out.push(q); } }
+  }
+  return out;
 }
 
 function certCats(cert) {
@@ -133,7 +177,8 @@ function statsFor(catKeys) {
 
 /* ---------- App State ---------- */
 const state = {
-  screen: 'select',       // 'select' | 'quiz' | 'summary' | 'examSummary'
+  screen: 'select',       // 'select' | 'quiz' | 'summary' | 'examSummary' | 'bookmarksOverview'
+  bookmarksOverviewCert: null, // 'SRC' | 'LRC' | 'UBI' | 'UBI_ERG' — welche Gemerkt-Liste gerade offen ist
   mode: 'practice',       // 'practice' | 'exam'
   certFilter: 'SRC',      // 'SRC' | 'LRC' | 'UBI' | '+UBI' | 'ALL'
   selectedCats: certCats('SRC'),
@@ -169,6 +214,7 @@ function render() {
   else if (state.screen === 'quiz') { if (state.mode === 'exam') renderExamQuiz(); else renderQuiz(); }
   else if (state.screen === 'summary') renderSummary();
   else if (state.screen === 'examSummary') renderExamSummary();
+  else if (state.screen === 'bookmarksOverview') renderBookmarksOverview();
 }
 
 /* ---------- SELECT ---------- */
@@ -242,6 +288,34 @@ function certContentHtml() {
     }).join('');
   }
 
+  function bookmarkRow(certOrErg) {
+    const ids = certOrErg === 'UBI_ERG'
+      ? QUESTIONS.filter(q => q.e === 1 && bookmarks[q.id]).map(q => q.id)
+      : QUESTIONS.filter(q => CATEGORIES[q.cat].cert === certOrErg && bookmarks[q.id]).map(q => q.id);
+    if (ids.length === 0) return ''; // Rubrik erscheint erst, sobald mindestens 1 Frage gemerkt ist
+    const virtualKey = certOrErg === 'UBI_ERG' ? 'BOOKMARKS_UBI_ERG' : `BOOKMARKS_${certOrErg}`;
+    const mastered = ids.filter(id => !isUnsicher(id)).length;
+    const half = ids.filter(id => getEntry(id).streak === 1).length;
+    const pctMastered = Math.round(mastered / ids.length * 100);
+    const pctSeen = Math.round((mastered + half) / ids.length * 100);
+    const checked = state.selectedCats.includes(virtualKey) ? 'checked' : '';
+    return `
+      <div class="cat-row">
+        <label class="cat-check-wrap" title="Auswählen">
+          <input type="checkbox" data-cat="${virtualKey}" ${checked} />
+          <span class="cat-check-box"></span>
+        </label>
+        <button class="cat-title-btn" data-bookmarks-overview="${certOrErg}">
+          <span class="cat-title">★ Gemerkt</span>
+          <span class="cat-meta">${mastered}/${ids.length}</span>
+          <span class="cat-bar">
+            <span class="cat-bar-half" style="width:${pctSeen}%"></span>
+            <span class="cat-bar-fill" style="width:${pctMastered}%"></span>
+          </span>
+        </button>
+      </div>`;
+  }
+
   const selStats = state.certFilter === '+UBI' ? statsForErgaenzung() : statsFor(state.selectedCats);
   const poolCount = state.filterMode === 'unsicher' ? selStats.unsicher : selStats.total;
 
@@ -251,16 +325,16 @@ function certContentHtml() {
       <h2>Kategorien</h2>
       ${(state.certFilter === 'SRC' || state.certFilter === 'ALL') ? `
         ${state.certFilter === 'ALL' ? '<p class="cert-label cert-src">SRC</p>' : ''}
-        <div class="cat-list">${catRows(srcCats)}</div>` : ''}
+        <div class="cat-list">${catRows(srcCats)}${bookmarkRow('SRC')}</div>` : ''}
       ${(state.certFilter === 'LRC' || state.certFilter === 'ALL') ? `
         ${state.certFilter === 'ALL' ? '<p class="cert-label cert-lrc">LRC</p>' : ''}
-        <div class="cat-list">${catRows(lrcCats)}</div>` : ''}
+        <div class="cat-list">${catRows(lrcCats)}${bookmarkRow('LRC')}</div>` : ''}
       ${(state.certFilter === 'UBI' || state.certFilter === 'ALL') ? `
         ${state.certFilter === 'ALL' ? '<p class="cert-label cert-ubi">UBI</p>' : ''}
-        <div class="cat-list">${catRows(ubiCats)}</div>` : ''}
+        <div class="cat-list">${catRows(ubiCats)}${bookmarkRow('UBI')}</div>` : ''}
       ${state.certFilter === '+UBI' ? `
         <p class="erg-hint">Ergänzungsprüfung SRC→UBI: 79 Fragen aus dem UBI-Katalog.<br>Fortschritt wird mit dem UBI-Tab geteilt.</p>
-        <div class="cat-list">${catRows(ubiCats, true)}</div>` : ''}
+        <div class="cat-list">${catRows(ubiCats, true)}${bookmarkRow('UBI_ERG')}</div>` : ''}
       <div class="cat-actions">
         <button id="selAll" class="btn-link">Alle auswählen</button>
         <button id="selNone" class="btn-link">Keine</button>
@@ -321,6 +395,15 @@ function bindCertContentListeners() {
     btn.addEventListener('click', () => {
       const key = btn.getAttribute('data-quickstart');
       startSession(key);
+    });
+  });
+
+  // "Gemerkt"-Titel: öffnet die Übersicht statt direkt eine Übungsrunde zu starten
+  root.querySelectorAll('.cat-title-btn[data-bookmarks-overview]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.bookmarksOverviewCert = btn.getAttribute('data-bookmarks-overview');
+      state.screen = 'bookmarksOverview';
+      render();
     });
   });
 
@@ -662,6 +745,27 @@ function confirmSubmitExam() {
   showConfirmDialog(msg, () => submitExam(false), { confirmLabel: 'Abgeben', cancelLabel: 'Weitermachen' });
 }
 
+// Startet eine normale Übungsrunde, aber mit einer festen Warteschlange (unshuffled,
+// Katalog-Reihenfolge) aus genau den gemerkten Fragen — beginnend bei startIndex.
+// So kann man von der Übersicht aus gezielt zu einer bestimmten Frage springen und
+// trotzdem ganz normal weiter vor/zurück blättern.
+function startBookmarksPractice(certOrErg, startIndex) {
+  const ids = certOrErg === 'UBI_ERG'
+    ? QUESTIONS.filter(q => q.e === 1 && bookmarks[q.id]).map(q => q.id)
+    : QUESTIONS.filter(q => CATEGORIES[q.cat].cert === certOrErg && bookmarks[q.id]).map(q => q.id);
+  if (ids.length === 0) return;
+
+  state.mode = 'practice';
+  state.queue = ids;
+  state.currentIndex = Math.max(0, Math.min(startIndex, ids.length - 1));
+  state.frontier = state.queue.length - 1; // alle Fragen sind hier von Anfang an frei erreichbar
+  state.sessionResults = { correct: 0, wrong: 0, dontknow: 0 };
+  state.givenAnswers = {};
+  state.screen = 'quiz';
+  loadCurrentQuestion();
+  render();
+}
+
 function startSession(catOverride) {
   // catOverride: optional single category key for quick-start
   if (catOverride) {
@@ -932,7 +1036,10 @@ function renderQuestionPanelInner() {
 
   return `
       <section class="panel question-panel">
-        <p class="question-id">${displayNumber(q)} &middot; ${escapeHtml(catTitle)}</p>
+        <p class="question-id">
+          ${displayNumber(q)} &middot; ${escapeHtml(catTitle)}
+          <button class="bm-star ${isBookmarked(id) ? 'bm-star-active' : ''}" data-bookmark-id="${id}" title="Merken">★</button>
+        </p>
         <h2 class="question-text">${escapeHtml(q.q)}</h2>
         <div class="options">${optHtml}${dontKnowMarkerHtml}</div>
       </section>
@@ -985,6 +1092,11 @@ function renderQuiz() {
   document.getElementById('exitBtn').addEventListener('click', () => {
     if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
     state.screen = 'select'; render();
+  });
+
+  root.querySelector('.bm-star')?.addEventListener('click', () => {
+    toggleBookmark(id);
+    render();
   });
 
   attachSwipeHandlers(document.getElementById('quizSwipeArea'), {
@@ -1183,6 +1295,56 @@ function renderExamSummary() {
     state.mode = 'exam';
     state.screen = 'select';
     render();
+  });
+}
+
+/* ---------- Gemerkt-Übersicht ---------- */
+function renderBookmarksOverview() {
+  const certOrErg = state.bookmarksOverviewCert;
+  const label = certOrErg === 'UBI_ERG' ? '+UBI' : certOrErg;
+  const ids = certOrErg === 'UBI_ERG'
+    ? QUESTIONS.filter(q => q.e === 1 && bookmarks[q.id]).map(q => q.id)
+    : QUESTIONS.filter(q => CATEGORIES[q.cat].cert === certOrErg && bookmarks[q.id]).map(q => q.id);
+
+  const rows = ids.map((id, idx) => {
+    const q = QUESTIONS.find(x => x.id === id);
+    const teaser = q.q.length > 70 ? q.q.slice(0, 70).trim() + '…' : q.q;
+    const mastered = !isUnsicher(id);
+    return `
+      <div class="bm-row">
+        <button class="bm-row-main" data-jump-idx="${idx}">
+          <span class="bm-row-num${mastered ? ' bm-row-num-ok' : ''}">${displayNumber(q)}</span>
+          <span class="bm-row-teaser">${escapeHtml(teaser)}</span>
+        </button>
+        <button class="bm-row-star" data-unmark-id="${id}" title="Merker entfernen">★</button>
+      </div>`;
+  }).join('');
+
+  root.innerHTML = `
+    <header class="header">
+      <button id="bmBackBtn" class="btn-link">&larr; Auswahl</button>
+      <h1>★ Gemerkt · ${label}</h1>
+      <p class="sub">${ids.length} Frage${ids.length===1?'':'n'}</p>
+    </header>
+    <section class="panel">
+      ${ids.length > 0 ? `<div class="bm-list">${rows}</div>` : `<p class="pool-info">Noch keine Fragen gemerkt. Tippe im Quiz auf den Stern bei einer Frage, um sie hier zu sammeln.</p>`}
+    </section>
+  `;
+
+  document.getElementById('bmBackBtn').addEventListener('click', () => {
+    state.screen = 'select'; render();
+  });
+  root.querySelectorAll('.bm-row-main').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.getAttribute('data-jump-idx'), 10);
+      startBookmarksPractice(certOrErg, idx);
+    });
+  });
+  root.querySelectorAll('.bm-row-star').forEach(btn => {
+    btn.addEventListener('click', () => {
+      toggleBookmark(btn.getAttribute('data-unmark-id'));
+      render(); // Liste neu aufbauen, entfernte Frage verschwindet direkt
+    });
   });
 }
 

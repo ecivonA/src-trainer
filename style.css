@@ -638,3 +638,72 @@ button {
 .confirm-actions button {
   flex: 1;
 }
+
+/* ── Merker (Bookmarks) ──────────────────────────────────────────────── */
+.question-id {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.bm-star {
+  background: none;
+  border: none;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--border);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.bm-star-active {
+  color: #f0a500;
+}
+
+.bm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.bm-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.bm-row-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 8px;
+  min-width: 0;
+}
+.bm-row-main:active { background: var(--hover); }
+.bm-row-num {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.bm-row-num-ok { color: var(--green); }
+.bm-row-teaser {
+  font-size: 14px;
+  color: var(--navy-dark);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bm-row-star {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: #f0a500;
+  cursor: pointer;
+  padding: 8px;
+}
