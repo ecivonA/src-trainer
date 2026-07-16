@@ -628,17 +628,16 @@ function attachCertTabDragPreview(barEl) {
   barEl.addEventListener('pointerleave', endDrag);
 }
 
-function showVersionMenu(cert) {
+function closeVersionDropdown() {
+  const dd = document.getElementById('versionDropdown');
+  if (dd) dd.remove();
+}
+
+function showVersionMenu(cert, anchorBtn) {
   const cfg = CATALOG_VERSIONS[cert];
   if (!cfg || cfg.versions.length < 2) return;
 
-  let overlay = document.getElementById('confirmOverlay');
-  if (!overlay) {
-    overlay = document.createElement('div');
-    overlay.id = 'confirmOverlay';
-    overlay.className = 'confirm-overlay';
-    document.body.appendChild(overlay);
-  }
+  closeVersionDropdown(); // ggf. bereits offenes Dropdown (anderer Tab) zuerst schließen
 
   const currentV = activeVersion(cert);
   const currentOnlyNew = onlyNewActiveFor(cert);
@@ -648,38 +647,45 @@ function showVersionMenu(cert) {
     const label = cfg.labels[v] || v;
     const isDefault = v === cfg.default;
     const active = v === currentV && !currentOnlyNew;
-    optsHtml += `<button class="version-menu-option ${active ? 'version-menu-option-active' : ''}" data-version="${v}" data-only-new="0">${escapeHtml(label)}</button>`;
+    optsHtml += `<button class="version-dd-option ${active ? 'version-dd-option-active' : ''}" data-version="${v}" data-only-new="0">${escapeHtml(label)}</button>`;
     // "…neu"-Variante (nurDiff) nur für Nicht-Standardversionen und nur im Übungsmodus
     if (!isDefault && state.mode === 'practice') {
       const activeNeu = v === currentV && currentOnlyNew;
-      optsHtml += `<button class="version-menu-option ${activeNeu ? 'version-menu-option-active' : ''}" data-version="${v}" data-only-new="1">${escapeHtml(label + 'neu')}</button>`;
+      optsHtml += `<button class="version-dd-option ${activeNeu ? 'version-dd-option-active' : ''}" data-version="${v}" data-only-new="1">${escapeHtml(label + 'neu')}</button>`;
     }
   }
 
-  overlay.innerHTML = `
-    <div class="confirm-box version-menu-box">
-      <p class="confirm-message">Fragenkatalog ${escapeHtml(cert)} — Version</p>
-      <div class="version-menu-options">${optsHtml}</div>
-      <button id="versionMenuCancel" class="btn-link">Abbrechen</button>
-    </div>
-  `;
+  const dd = document.createElement('div');
+  dd.id = 'versionDropdown';
+  dd.className = 'version-dropdown';
+  dd.innerHTML = optsHtml;
 
-  void overlay.offsetWidth;
-  overlay.classList.add('confirm-overlay-show');
+  // Direkt unter dem gedrückten Tab verankern (kein Overlay/Dialog, bleibt "flach").
+  const barEl = anchorBtn.closest('.cert-tabs');
+  barEl.style.position = 'relative';
+  barEl.appendChild(dd);
+  dd.style.left = anchorBtn.offsetLeft + 'px';
+  dd.style.top = (anchorBtn.offsetTop + anchorBtn.offsetHeight + 6) + 'px';
 
-  function close() { overlay.classList.remove('confirm-overlay-show'); }
-
-  overlay.querySelectorAll('.version-menu-option').forEach(btn => {
-    btn.addEventListener('click', () => {
+  dd.querySelectorAll('.version-dd-option').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       state.catalogVersion[cert] = btn.getAttribute('data-version');
       saveCatalogVersion(state.catalogVersion);
       state.onlyNewContent[cert] = btn.getAttribute('data-only-new') === '1';
       saveOnlyNewContent(state.onlyNewContent);
-      close();
+      closeVersionDropdown();
       render();
     });
   });
-  document.getElementById('versionMenuCancel').addEventListener('click', close);
+
+  // Klick irgendwo außerhalb schließt das Dropdown wieder (erst im nächsten Tick registrieren,
+  // sonst schließt der gerade auslösende Klick/Touch es sofort wieder).
+  setTimeout(() => {
+    document.addEventListener('click', function onOutside(e) {
+      if (!dd.contains(e.target)) closeVersionDropdown();
+    }, { once: true });
+  }, 0);
 }
 
 // Langes Drücken (Touch oder Maus) auf einen Zertifikat-Tab öffnet den Versions-Umschalter,
@@ -701,7 +707,7 @@ function attachCertTabLongPress(barEl) {
       timer = setTimeout(() => {
         timer = null;
         state._suppressTabClick = true; // der anschließende click-Event soll nicht den Tab wechseln
-        showVersionMenu(cert);
+        showVersionMenu(cert, btn);
       }, 500);
     });
     btn.addEventListener('pointermove', (e) => {
