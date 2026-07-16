@@ -45,18 +45,109 @@ function saveProgress(p) {
 
 let progress = loadProgress();
 
-function getEntry(id) { return progress[id] || { streak: 0 }; }
+/* ---------- Katalog-Versionen (z.B. UBI 2018 vs. 2026) ---------- */
+const CATALOG_VERSION_KEY = 'src_trainer_catalog_version_v1';
+
+function loadCatalogVersion() {
+  const defaults = {};
+  for (const cert of Object.keys(CATALOG_VERSIONS)) defaults[cert] = CATALOG_VERSIONS[cert].default;
+  try {
+    const raw = localStorage.getItem(CATALOG_VERSION_KEY);
+    if (!raw) return defaults;
+    const saved = JSON.parse(raw);
+    return { ...defaults, ...saved };
+  } catch (e) { return defaults; }
+}
+function saveCatalogVersion(v) {
+  try { localStorage.setItem(CATALOG_VERSION_KEY, JSON.stringify(v)); } catch (e) {}
+}
+
+// "nurDiff"/"2026neu": pro Zertifikat, nur im Übungsmodus relevant (im Prüfmodus ignoriert,
+// da die Prüfbögen immer den vollen, offiziellen Fragenmix zeigen sollen).
+const ONLY_NEW_CONTENT_KEY = 'src_trainer_only_new_v1';
+function loadOnlyNewContent() {
+  try {
+    const raw = localStorage.getItem(ONLY_NEW_CONTENT_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) { return {}; }
+}
+function saveOnlyNewContent(v) {
+  try { localStorage.setItem(ONLY_NEW_CONTENT_KEY, JSON.stringify(v)); } catch (e) {}
+}
+function onlyNewActiveFor(cert) { return !!(state.onlyNewContent && state.onlyNewContent[cert]); }
+// Für den Übungspool: Fragen eines Zertifikats mit aktivem "nurDiff" auf die inhaltlich neuen
+// beschränken: läuft pro Frage über deren EIGENES Zertifikat, damit das auch im "Alle"-Tab
+// (gemischte Kategorien mehrerer Zertifikate) je Frage korrekt greift.
+function applyOnlyNewFilter(qs) {
+  return qs.filter(q => !onlyNewActiveFor(certOfId(q.id)) || isNewContentId(q.id));
+}
+
+function certOfId(id) { return id.split('-')[0]; }
+
+function activeVersion(cert) {
+  const cfg = CATALOG_VERSIONS[cert];
+  if (!cfg) return null;
+  return (state.catalogVersion && state.catalogVersion[cert]) || cfg.default;
+}
+
+// Ist `id` unter der gerade aktiven Version dieses Zertifikats eine inhaltlich neue Frage?
+// (identisches Konzept für: "NEU"-Badge auf der Frage, nurDiff-Filter, isolierter Fortschritt)
+function isNewContentId(id) {
+  const cert = certOfId(id);
+  const cfg = CATALOG_VERSIONS[cert];
+  if (!cfg) return false;
+  const v = activeVersion(cert);
+  if (v === cfg.default) return false; // "neu" ergibt nur relativ zur Basisversion einen Sinn
+  const list = cfg.newContentIds && cfg.newContentIds[v];
+  return !!(list && list.includes(id));
+}
+
+// Liefert Frage/Antworten in der aktuell aktiven Version (Basisobjekt bleibt bei Standardversion
+// unverändert). Zeigt bei einer Nicht-Standardversion IMMER den dortigen Wortlaut, nicht nur bei
+// inhaltlich neuen Fragen — auch reine Umformulierungen sollen sichtbar sein.
+function resolveQuestion(q) {
+  const cert = certOfId(q.id);
+  const cfg = CATALOG_VERSIONS[cert];
+  if (!cfg) return q;
+  const v = activeVersion(cert);
+  const ov = cfg.overrides && cfg.overrides[v] && cfg.overrides[v][q.id];
+  return ov ? { ...q, q: ov.q, o: ov.o } : q;
+}
+
+// Interner Speicher-Key für den Fortschritt: inhaltlich neue Fragen (s.o.) bekommen unter ihrer
+// jeweiligen Version einen eigenen, dauerhaft getrennten Fortschritt ("UBI-045@2026" intern) —
+// inhaltsgleiche/nur umformulierte Fragen teilen sich weiterhin denselben Fortschritt wie bisher.
+// Wichtig: diese Notation ist rein intern für localStorage, nirgends in der UI sichtbar/angezeigt.
+function progressKeyFor(id) {
+  return isNewContentId(id) ? `${id}@${activeVersion(certOfId(id))}` : id;
+}
+
+// Kleine Badges für die Frage-Kopfzeile: Versionsstand (nur wenn nicht Standardversion) und
+// "NEU" (nur wenn die Frage unter der aktiven Version inhaltlich neu ist).
+function versionBadgesHtml(id) {
+  const cert = certOfId(id);
+  const cfg = CATALOG_VERSIONS[cert];
+  if (!cfg || cfg.versions.length < 2) return '';
+  const v = activeVersion(cert);
+  let html = '';
+  if (v !== cfg.default) html += ` <span class="version-badge">${escapeHtml(cfg.labels[v] || v)}</span>`;
+  if (isNewContentId(id)) html += ` <span class="version-badge version-badge-new">NEU</span>`;
+  return html;
+}
+
+function getEntry(id) { return progress[progressKeyFor(id)] || { streak: 0 }; }
 function isUnsicher(id) { return getEntry(id).streak < 2; }
 
 function markCorrect(id) {
-  const e = getEntry(id);
+  const key = progressKeyFor(id);
+  const e = progress[key] || { streak: 0 };
   e.streak = Math.min(e.streak + 1, 2);
-  progress[id] = e;
+  progress[key] = e;
   saveProgress(progress);
 }
 
 function markWrongOrUnknown(id) {
-  progress[id] = { streak: 0 };
+  progress[progressKeyFor(id)] = { streak: 0 };
   saveProgress(progress);
 }
 
@@ -181,6 +272,9 @@ const state = {
   bookmarksOverviewCert: null, // 'SRC' | 'LRC' | 'UBI' | 'UBI_ERG' — welche Gemerkt-Liste gerade offen ist
   mode: 'practice',       // 'practice' | 'exam'
   certFilter: 'SRC',      // 'SRC' | 'LRC' | 'UBI' | '+UBI' | 'ALL'
+  catalogVersion: loadCatalogVersion(), // { SRC: '2018', LRC: '2018', UBI: '2018' } — persistiert
+  onlyNewContent: loadOnlyNewContent(), // { UBI: true, ... } — "nurDiff"/"2026neu", persistiert
+  _suppressTabClick: false, // wird nach einem Long-Press auf einen Cert-Tab kurz gesetzt
   selectedCats: certCats('SRC'),
   filterMode: 'unsicher', // 'unsicher' | 'alle'
   queue: [],
@@ -219,6 +313,26 @@ function render() {
 
 /* ---------- SELECT ---------- */
 const CERT_TAB_ORDER = ['SRC', 'LRC', 'UBI', '+UBI', 'ALL'];
+
+// Welches Katalog-Zertifikat steckt hinter einem Tab? (+UBI teilt sich Katalog/Version mit UBI;
+// "ALL" hat keine einzelne Version, dort also kein Umschalter.)
+function certTabUnderlyingCert(tabKey) {
+  if (tabKey === 'SRC' || tabKey === 'LRC' || tabKey === 'UBI') return tabKey;
+  if (tabKey === '+UBI') return 'UBI';
+  return null;
+}
+
+// Kleines Label im Tab-Button selbst, z.B. "2026" oder "2026neu" — nur wenn eine
+// Nicht-Standardversion aktiv ist, sonst bleibt der Tab unverändert ("SRC", "UBI" ...).
+function certTabVersionLabel(tabKey) {
+  const cert = certTabUnderlyingCert(tabKey);
+  const cfg = cert && CATALOG_VERSIONS[cert];
+  if (!cfg || cfg.versions.length < 2) return '';
+  const v = activeVersion(cert);
+  if (v === cfg.default) return '';
+  const base = cfg.labels[v] || v;
+  return `<span class="cert-tab-version">${escapeHtml(onlyNewActiveFor(cert) ? base + 'neu' : base)}</span>`;
+}
 
 function selectedCatsForCertFilter(filter) {
   if (filter === 'SRC') return certCats('SRC');
@@ -317,7 +431,11 @@ function certContentHtml() {
   }
 
   const selStats = state.certFilter === '+UBI' ? statsForErgaenzung() : statsFor(state.selectedCats);
-  const poolCount = state.filterMode === 'unsicher' ? selStats.unsicher : selStats.total;
+  const poolCount = buildPracticePool().length;
+  const onlyNewHintCert = certTabUnderlyingCert(state.certFilter);
+  const onlyNewHint = (onlyNewHintCert && onlyNewActiveFor(onlyNewHintCert))
+    ? `<p class="pool-info" style="color:var(--muted);font-weight:400;">nur die neuen ${escapeHtml(CATALOG_VERSIONS[onlyNewHintCert].labels[activeVersion(onlyNewHintCert)])}er Fragen (lange auf „${escapeHtml(state.certFilter)}" drücken zum Ändern)</p>`
+    : '';
 
   if (state.mode === 'practice') {
     return `
@@ -354,6 +472,7 @@ function certContentHtml() {
         </label>
       </div>
       <p class="pool-info">${poolCount} Frage${poolCount===1?'':'n'} in dieser Runde</p>
+      ${onlyNewHint}
     </section>
 
     <section class="panel actions">
@@ -485,6 +604,91 @@ function attachCertTabDragPreview(barEl) {
   barEl.addEventListener('pointerleave', endDrag);
 }
 
+function showVersionMenu(cert) {
+  const cfg = CATALOG_VERSIONS[cert];
+  if (!cfg || cfg.versions.length < 2) return;
+
+  let overlay = document.getElementById('confirmOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'confirmOverlay';
+    overlay.className = 'confirm-overlay';
+    document.body.appendChild(overlay);
+  }
+
+  const currentV = activeVersion(cert);
+  const currentOnlyNew = onlyNewActiveFor(cert);
+
+  let optsHtml = '';
+  for (const v of cfg.versions) {
+    const label = cfg.labels[v] || v;
+    const isDefault = v === cfg.default;
+    const active = v === currentV && !currentOnlyNew;
+    optsHtml += `<button class="version-menu-option ${active ? 'version-menu-option-active' : ''}" data-version="${v}" data-only-new="0">${escapeHtml(label)}</button>`;
+    // "…neu"-Variante (nurDiff) nur für Nicht-Standardversionen und nur im Übungsmodus
+    if (!isDefault && state.mode === 'practice') {
+      const activeNeu = v === currentV && currentOnlyNew;
+      optsHtml += `<button class="version-menu-option ${activeNeu ? 'version-menu-option-active' : ''}" data-version="${v}" data-only-new="1">${escapeHtml(label + 'neu')}</button>`;
+    }
+  }
+
+  overlay.innerHTML = `
+    <div class="confirm-box version-menu-box">
+      <p class="confirm-message">Fragenkatalog ${escapeHtml(cert)} — Version</p>
+      <div class="version-menu-options">${optsHtml}</div>
+      <button id="versionMenuCancel" class="btn-link">Abbrechen</button>
+    </div>
+  `;
+
+  void overlay.offsetWidth;
+  overlay.classList.add('confirm-overlay-show');
+
+  function close() { overlay.classList.remove('confirm-overlay-show'); }
+
+  overlay.querySelectorAll('.version-menu-option').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.catalogVersion[cert] = btn.getAttribute('data-version');
+      saveCatalogVersion(state.catalogVersion);
+      state.onlyNewContent[cert] = btn.getAttribute('data-only-new') === '1';
+      saveOnlyNewContent(state.onlyNewContent);
+      close();
+      render();
+    });
+  });
+  document.getElementById('versionMenuCancel').addEventListener('click', close);
+}
+
+// Langes Drücken (Touch oder Maus) auf einen Zertifikat-Tab öffnet den Versions-Umschalter,
+// ohne den normalen Klick (Tab wechseln) bzw. das Streich-Umschalten zu stören.
+function attachCertTabLongPress(barEl) {
+  if (!barEl) return;
+  let timer = null;
+  let startX = 0, startY = 0;
+
+  barEl.querySelectorAll('.cert-tab').forEach(btn => {
+    const cert = certTabUnderlyingCert(btn.getAttribute('data-cert'));
+    if (!cert || !CATALOG_VERSIONS[cert] || CATALOG_VERSIONS[cert].versions.length < 2) return;
+
+    const cancelTimer = () => { if (timer) { clearTimeout(timer); timer = null; } };
+
+    btn.addEventListener('pointerdown', (e) => {
+      startX = e.clientX; startY = e.clientY;
+      cancelTimer();
+      timer = setTimeout(() => {
+        timer = null;
+        state._suppressTabClick = true; // der anschließende click-Event soll nicht den Tab wechseln
+        showVersionMenu(cert);
+      }, 500);
+    });
+    btn.addEventListener('pointermove', (e) => {
+      if (Math.abs(e.clientX - startX) > 8 || Math.abs(e.clientY - startY) > 8) cancelTimer();
+    });
+    btn.addEventListener('pointerup', cancelTimer);
+    btn.addEventListener('pointercancel', cancelTimer);
+    btn.addEventListener('pointerleave', cancelTimer);
+  });
+}
+
 function renderSelect() {
   const srcCats = certCats('SRC');
   const lrcCats = certCats('LRC');
@@ -515,10 +719,10 @@ function renderSelect() {
     <section class="panel">
       <h2>Zertifikat</h2>
       <div class="cert-tabs" id="certTabsBar">
-        <button class="cert-tab ${state.certFilter==='SRC'?'active':''}" data-cert="SRC">SRC</button>
-        <button class="cert-tab ${state.certFilter==='LRC'?'active':''}" data-cert="LRC">LRC</button>
-        <button class="cert-tab ${state.certFilter==='UBI'?'active':''}" data-cert="UBI">UBI</button>
-        <button class="cert-tab ${state.certFilter==='+UBI'?'active':''}" data-cert="+UBI">+UBI</button>
+        <button class="cert-tab ${state.certFilter==='SRC'?'active':''}" data-cert="SRC">SRC${certTabVersionLabel('SRC')}</button>
+        <button class="cert-tab ${state.certFilter==='LRC'?'active':''}" data-cert="LRC">LRC${certTabVersionLabel('LRC')}</button>
+        <button class="cert-tab ${state.certFilter==='UBI'?'active':''}" data-cert="UBI">UBI${certTabVersionLabel('UBI')}</button>
+        <button class="cert-tab ${state.certFilter==='+UBI'?'active':''}" data-cert="+UBI">+UBI${certTabVersionLabel('+UBI')}</button>
         <button class="cert-tab ${state.certFilter==='ALL'?'active':''}" data-cert="ALL">Alle</button>
       </div>
     </section>
@@ -530,10 +734,15 @@ function renderSelect() {
 
   // Zertifikat-Tabs: normaler Klick wählt direkt
   root.querySelectorAll('.cert-tab').forEach(btn => {
-    btn.addEventListener('click', () => applyCertFilter(btn.getAttribute('data-cert')));
+    btn.addEventListener('click', () => {
+      if (state._suppressTabClick) { state._suppressTabClick = false; return; }
+      applyCertFilter(btn.getAttribute('data-cert'));
+    });
   });
   // ...und Streichen über die Tab-Leiste wählt schon live beim Drüberfahren (Maus oder Finger)
   attachCertTabDragPreview(document.getElementById('certTabsBar'));
+  // ...und langes Drücken öffnet den Versions-Umschalter (2018/2026/2026neu), aktuell nur UBI/+UBI
+  attachCertTabLongPress(document.getElementById('certTabsBar'));
 
   bindCertContentListeners();
 
@@ -614,7 +823,7 @@ function submitExam(timedOut) {
 
   let correctCount = 0;
   const perQuestion = ids.map(id => {
-    const q = QUESTIONS.find(x => x.id === id);
+    const q = resolveQuestion(QUESTIONS.find(x => x.id === id));
     const given = state.examAnswers[id] ?? null;
     const isCorrect = given === q.o[0];
     if (isCorrect) { correctCount++; markCorrect(id); } else { markWrongOrUnknown(id); }
@@ -639,7 +848,7 @@ function submitExam(timedOut) {
 /* ---------- Prüfungs-Quiz-Screen ---------- */
 function renderExamQuestionPanelInner() {
   const id = state.queue[state.currentIndex];
-  const q = QUESTIONS.find(x => x.id === id);
+  const q = resolveQuestion(QUESTIONS.find(x => x.id === id));
   if (!state.examShuffled[id]) state.examShuffled[id] = shuffle(q.o);
   const opts = state.examShuffled[id];
   const given = state.examAnswers[id];
@@ -652,7 +861,7 @@ function renderExamQuestionPanelInner() {
   return `
       <section class="panel question-panel">
         <p class="question-id">
-          ${displayNumber(q)}
+          ${displayNumber(q)}${versionBadgesHtml(id)}
           <button class="bm-star ${isBookmarked(id) ? 'bm-star-active' : ''}" data-bookmark-id="${id}" title="Merken">★</button>
         </p>
         <h2 class="question-text">${escapeHtml(q.q)}</h2>
@@ -777,14 +986,20 @@ function startBookmarksPractice(certOrErg, startIndex) {
   render();
 }
 
+function buildPracticePool() {
+  let pool = questionsForCats(state.selectedCats);
+  if (state.certFilter === '+UBI') pool = pool.filter(q => q.e === 1);
+  pool = applyOnlyNewFilter(pool);
+  if (state.filterMode === 'unsicher') pool = pool.filter(q => isUnsicher(q.id));
+  return pool;
+}
+
 function startSession(catOverride) {
   // catOverride: optional single category key for quick-start
   if (catOverride) {
     state.selectedCats = [catOverride];
   }
-  let pool = questionsForCats(state.selectedCats);
-  if (state.certFilter === '+UBI') pool = pool.filter(q => q.e === 1);
-  if (state.filterMode === 'unsicher') pool = pool.filter(q => isUnsicher(q.id));
+  const pool = buildPracticePool();
 
   if (pool.length === 0) {
     showToast(
@@ -807,7 +1022,7 @@ function startSession(catOverride) {
 
 function loadCurrentQuestion() {
   const id = state.queue[state.currentIndex];
-  const q = QUESTIONS.find(x => x.id === id);
+  const q = resolveQuestion(QUESTIONS.find(x => x.id === id));
   const given = state.givenAnswers[id];
   if (given) {
     // Reviewing an already-answered question — restore saved shuffle
@@ -1016,11 +1231,12 @@ function displayNumber(q) {
 /* ---------- QUIZ ---------- */
 function renderQuestionPanelInner() {
   const id = state.queue[state.currentIndex];
-  const q = QUESTIONS.find(x => x.id === id);
+  const q = resolveQuestion(QUESTIONS.find(x => x.id === id));
   const total = state.queue.length;
   const catTitle = CATEGORIES[q.cat].title;
   const given = state.givenAnswers[id];
   const wasDontKnow = state.answered && given && given.text === null;
+  const badgesHtml = versionBadgesHtml(id);
 
   const optHtml = state.currentShuffledOptions.map((opt, i) => {
     let cls = 'option';
@@ -1048,7 +1264,7 @@ function renderQuestionPanelInner() {
   return `
       <section class="panel question-panel">
         <p class="question-id">
-          ${displayNumber(q)} &middot; ${escapeHtml(catTitle)}
+          ${displayNumber(q)} &middot; ${escapeHtml(catTitle)}${badgesHtml}
           <button class="bm-star ${isBookmarked(id) ? 'bm-star-active' : ''}" data-bookmark-id="${id}" title="Merken">★</button>
         </p>
         <h2 class="question-text">${escapeHtml(q.q)}</h2>
@@ -1249,10 +1465,11 @@ function renderExamSummary() {
   const passNeeded = meta.count - meta.maxWrong;
 
   const rows = r.perQuestion.map((pq, i) => {
-    const q = QUESTIONS.find(x => x.id === pq.id);
+    const q = resolveQuestion(QUESTIONS.find(x => x.id === pq.id));
     const icon = pq.isCorrect ? '<span class="exam-check-ok">✔</span>' : '<span class="exam-check-bad">✘</span>';
     const expanded = state.examExpanded.has(pq.id);
     const explanation = (typeof EXPLANATIONS !== 'undefined') ? (EXPLANATIONS[pq.id] || null) : null;
+    const teaser = q.q.length > 60 ? q.q.slice(0, 60).trim() + '…' : q.q;
 
     const detailHtml = expanded ? `
       <div class="exam-result-detail">
@@ -1277,6 +1494,7 @@ function renderExamSummary() {
       <div class="exam-result-row">
         <button class="exam-result-line ${pq.isCorrect ? 'exam-result-line-ok' : ''}" data-toggle-id="${pq.id}">
           ${icon} <span class="exam-result-num">${displayNumber(q)}</span>
+          <span class="bm-row-teaser">${escapeHtml(teaser)}</span>
         </button>
         ${detailHtml}
       </div>`;
@@ -1327,14 +1545,14 @@ function renderBookmarksOverview() {
     : QUESTIONS.filter(q => CATEGORIES[q.cat].cert === certOrErg && bookmarks[q.id]).map(q => q.id);
 
   const rows = ids.map((id, idx) => {
-    const q = QUESTIONS.find(x => x.id === id);
+    const q = resolveQuestion(QUESTIONS.find(x => x.id === id));
     const teaser = q.q.length > 70 ? q.q.slice(0, 70).trim() + '…' : q.q;
     const mastered = !isUnsicher(id);
     return `
       <div class="bm-row">
         <button class="bm-row-main" data-jump-idx="${idx}">
           <span class="bm-row-num${mastered ? ' bm-row-num-ok' : ''}">${displayNumber(q)}</span>
-          <span class="bm-row-teaser">${escapeHtml(teaser)}</span>
+          <span class="bm-row-teaser">${escapeHtml(teaser)}</span>${versionBadgesHtml(id)}
         </button>
         <button class="bm-row-star" data-unmark-id="${id}" title="Merker entfernen">★</button>
       </div>`;
