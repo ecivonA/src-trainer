@@ -48,15 +48,36 @@ let progress = loadProgress();
 /* ---------- Katalog-Versionen (z.B. UBI 2018 vs. 2026) ---------- */
 const CATALOG_VERSION_KEY = 'src_trainer_catalog_version_v1';
 
+// Welche Version gilt gerade automatisch (noch keine explizite User-Wahl)? Die mit dem
+// jüngsten validFrom-Datum, das nicht in der Zukunft liegt — z.B. UBI 2018 bis 30.9.2026,
+// automatisch 2026 ab dem 1.10.2026. Ohne validFrom-Angabe zählt eine Version als "immer gültig".
+function computeAutoVersion(cert) {
+  const cfg = CATALOG_VERSIONS[cert];
+  const now = new Date();
+  let chosen = cfg.default;
+  let chosenDate = null;
+  for (const v of cfg.versions) {
+    const raw = cfg.validFrom && cfg.validFrom[v];
+    const d = raw ? new Date(raw) : new Date(0);
+    if (d <= now && (chosenDate === null || d > chosenDate)) { chosen = v; chosenDate = d; }
+  }
+  return chosen;
+}
+
 function loadCatalogVersion() {
-  const defaults = {};
-  for (const cert of Object.keys(CATALOG_VERSIONS)) defaults[cert] = CATALOG_VERSIONS[cert].default;
+  let saved = {};
   try {
     const raw = localStorage.getItem(CATALOG_VERSION_KEY);
-    if (!raw) return defaults;
-    const saved = JSON.parse(raw);
-    return { ...defaults, ...saved };
-  } catch (e) { return defaults; }
+    if (raw) saved = JSON.parse(raw);
+  } catch (e) { /* ignorieren, dann bleibt saved leer */ }
+
+  const result = {};
+  for (const cert of Object.keys(CATALOG_VERSIONS)) {
+    // Explizite User-Wahl hat Vorrang; ohne sie automatisch die aktuell gültige Version —
+    // wird bei jedem Laden neu berechnet, damit z.B. am 1.10.2026 ohne Zutun umgeschaltet wird.
+    result[cert] = saved[cert] || computeAutoVersion(cert);
+  }
+  return result;
 }
 function saveCatalogVersion(v) {
   try { localStorage.setItem(CATALOG_VERSION_KEY, JSON.stringify(v)); } catch (e) {}
@@ -122,15 +143,14 @@ function progressKeyFor(id) {
   return isNewContentId(id) ? `${id}@${activeVersion(certOfId(id))}` : id;
 }
 
-// Kleine Badges für die Frage-Kopfzeile: Versionsstand (nur wenn nicht Standardversion) und
-// "NEU" (nur wenn die Frage unter der aktiven Version inhaltlich neu ist).
+// Kleine Badges für die Frage-Kopfzeile: aktueller Versionsstand (sobald >1 Version existiert)
+// und "NEU" (nur wenn die Frage unter der aktiven Version inhaltlich neu ist).
 function versionBadgesHtml(id) {
   const cert = certOfId(id);
   const cfg = CATALOG_VERSIONS[cert];
   if (!cfg || cfg.versions.length < 2) return '';
   const v = activeVersion(cert);
-  let html = '';
-  if (v !== cfg.default) html += ` <span class="version-badge">${escapeHtml(cfg.labels[v] || v)}</span>`;
+  let html = ` <span class="version-badge">${escapeHtml(cfg.labels[v] || v)}</span>`;
   if (isNewContentId(id)) html += ` <span class="version-badge version-badge-new">NEU</span>`;
   return html;
 }
@@ -322,14 +342,13 @@ function certTabUnderlyingCert(tabKey) {
   return null;
 }
 
-// Kleines Label im Tab-Button selbst, z.B. "2026" oder "2026neu" — nur wenn eine
-// Nicht-Standardversion aktiv ist, sonst bleibt der Tab unverändert ("SRC", "UBI" ...).
+// Kleines Label im Tab-Button selbst, z.B. "2018", "2026" oder "2026neu" — sobald es zu
+// diesem Zertifikat mehr als eine Version gibt, damit immer klar ist, welche gerade aktiv ist.
 function certTabVersionLabel(tabKey) {
   const cert = certTabUnderlyingCert(tabKey);
   const cfg = cert && CATALOG_VERSIONS[cert];
   if (!cfg || cfg.versions.length < 2) return '';
   const v = activeVersion(cert);
-  if (v === cfg.default) return '';
   const base = cfg.labels[v] || v;
   return `<span class="cert-tab-version">${escapeHtml(onlyNewActiveFor(cert) ? base + 'neu' : base)}</span>`;
 }
@@ -350,8 +369,9 @@ function certContentHtml() {
     return cats.map(key => {
       const cat = CATEGORIES[key];
       const allQs = QUESTIONS.filter(q => q.cat === key);
-      const qs = ergOnly ? allQs.filter(q => q.e === 1) : allQs;
-      if (ergOnly && qs.length === 0) return '';
+      let qs = ergOnly ? allQs.filter(q => q.e === 1) : allQs;
+      qs = applyOnlyNewFilter(qs); // bei aktivem "2026neu" nur die inhaltlich neuen Fragen zählen
+      if (qs.length === 0) return ''; // z.B. Kategorie ohne inhaltlich neue Fragen bei aktivem "2026neu"
       const mastered = qs.filter(q => !isUnsicher(q.id)).length;
       const half = qs.filter(q => getEntry(q.id).streak === 1).length;
       const s = { total: qs.length, mastered, half };
@@ -407,11 +427,15 @@ function certContentHtml() {
       ? QUESTIONS.filter(q => q.e === 1 && bookmarks[q.id]).map(q => q.id)
       : QUESTIONS.filter(q => CATEGORIES[q.cat].cert === certOrErg && bookmarks[q.id]).map(q => q.id);
     if (ids.length === 0) return ''; // Rubrik erscheint erst, sobald mindestens 1 Frage gemerkt ist
+    // Statistik-Badge/Checkbox-Pool wie bei den Themen-Kategorien um "2026neu" reduzieren — die
+    // Merk-Übersicht selbst (Titel-Klick) bleibt bewusst ungefiltert, das ist deine kuratierte Liste.
+    const poolIds = applyOnlyNewFilter(ids.map(id => ({ id }))).map(x => x.id);
+    if (poolIds.length === 0) return '';
     const virtualKey = certOrErg === 'UBI_ERG' ? 'BOOKMARKS_UBI_ERG' : `BOOKMARKS_${certOrErg}`;
-    const mastered = ids.filter(id => !isUnsicher(id)).length;
-    const half = ids.filter(id => getEntry(id).streak === 1).length;
-    const pctMastered = Math.round(mastered / ids.length * 100);
-    const pctSeen = Math.round((mastered + half) / ids.length * 100);
+    const mastered = poolIds.filter(id => !isUnsicher(id)).length;
+    const half = poolIds.filter(id => getEntry(id).streak === 1).length;
+    const pctMastered = Math.round(mastered / poolIds.length * 100);
+    const pctSeen = Math.round((mastered + half) / poolIds.length * 100);
     const checked = state.selectedCats.includes(virtualKey) ? 'checked' : '';
     return `
       <div class="cat-row">
@@ -421,7 +445,7 @@ function certContentHtml() {
         </label>
         <button class="cat-title-btn" data-bookmarks-overview="${certOrErg}">
           <span class="cat-title">★ Gemerkt</span>
-          <span class="cat-meta">${mastered}/${ids.length}</span>
+          <span class="cat-meta">${mastered}/${poolIds.length}</span>
           <span class="cat-bar">
             <span class="cat-bar-half" style="width:${pctSeen}%"></span>
             <span class="cat-bar-fill" style="width:${pctMastered}%"></span>

@@ -5,12 +5,15 @@
    Fragen, die inhaltlich neu sind ("NEU 2026"-Label, nurDiff-Filter, eigener Fortschritt).
    Gemeinsam mit dem User Frage fuer Frage festgelegt, nicht neu verhandeln. */
 const CATALOG_VERSIONS = {
-  SRC: { versions: ["2018"], default: "2018", labels: { "2018": "2018" }, overrides: {}, newContentIds: {} },
-  LRC: { versions: ["2018"], default: "2018", labels: { "2018": "2018" }, overrides: {}, newContentIds: {} },
+  SRC: { versions: ["2018"], default: "2018", labels: { "2018": "2018" }, validFrom: { "2018": "2018-01-01" }, overrides: {}, newContentIds: {} },
+  LRC: { versions: ["2018"], default: "2018", labels: { "2018": "2018" }, validFrom: { "2018": "2018-01-01" }, overrides: {}, newContentIds: {} },
   UBI: {
     versions: ["2018", "2026"],
     default: "2018",
     labels: { "2018": "2018", "2026": "2026" },
+    // Ab wann eine Version offiziell gilt — bestimmt die automatische Vorauswahl, falls der
+    // User noch keine eigene Wahl getroffen hat (siehe computeAutoVersion in app.js).
+    validFrom: { "2018": "2018-01-01", "2026": "2026-10-01" },
     overrides: {
       "2026": {
         "UBI-001": {"q": "Was ist Binnenschifffahrtsfunk?", "o": ["Internationaler mobiler UKW/VHF-Sprechfunkdienst auf Binnenschifffahrtsstraßen", "Nationaler mobiler UKW/VHF-Sprechfunkdienst auf Binnenschifffahrtsstraßen", "Internationales UKW/VHF-Sprechfunkverfahren im Binnenbereich", "Nationales UKW/VHF-Sprechfunkverfahren im Binnenbereich"]},
