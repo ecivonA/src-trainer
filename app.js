@@ -325,16 +325,16 @@ function certContentHtml() {
       <h2>Kategorien</h2>
       ${(state.certFilter === 'SRC' || state.certFilter === 'ALL') ? `
         ${state.certFilter === 'ALL' ? '<p class="cert-label cert-src">SRC</p>' : ''}
-        <div class="cat-list">${catRows(srcCats)}${bookmarkRow('SRC')}</div>` : ''}
+        <div class="cat-list">${bookmarkRow('SRC')}${catRows(srcCats)}</div>` : ''}
       ${(state.certFilter === 'LRC' || state.certFilter === 'ALL') ? `
         ${state.certFilter === 'ALL' ? '<p class="cert-label cert-lrc">LRC</p>' : ''}
-        <div class="cat-list">${catRows(lrcCats)}${bookmarkRow('LRC')}</div>` : ''}
+        <div class="cat-list">${bookmarkRow('LRC')}${catRows(lrcCats)}</div>` : ''}
       ${(state.certFilter === 'UBI' || state.certFilter === 'ALL') ? `
         ${state.certFilter === 'ALL' ? '<p class="cert-label cert-ubi">UBI</p>' : ''}
-        <div class="cat-list">${catRows(ubiCats)}${bookmarkRow('UBI')}</div>` : ''}
+        <div class="cat-list">${bookmarkRow('UBI')}${catRows(ubiCats)}</div>` : ''}
       ${state.certFilter === '+UBI' ? `
         <p class="erg-hint">Ergänzungsprüfung SRC→UBI: 79 Fragen aus dem UBI-Katalog.<br>Fortschritt wird mit dem UBI-Tab geteilt.</p>
-        <div class="cat-list">${catRows(ubiCats, true)}${bookmarkRow('UBI_ERG')}</div>` : ''}
+        <div class="cat-list">${bookmarkRow('UBI_ERG')}${catRows(ubiCats, true)}</div>` : ''}
       <div class="cat-actions">
         <button id="selAll" class="btn-link">Alle auswählen</button>
         <button id="selNone" class="btn-link">Keine</button>
@@ -651,7 +651,10 @@ function renderExamQuestionPanelInner() {
 
   return `
       <section class="panel question-panel">
-        <p class="question-id">${displayNumber(q)}</p>
+        <p class="question-id">
+          ${displayNumber(q)}
+          <button class="bm-star ${isBookmarked(id) ? 'bm-star-active' : ''}" data-bookmark-id="${id}" title="Merken">★</button>
+        </p>
         <h2 class="question-text">${escapeHtml(q.q)}</h2>
         <div class="options">${optHtml}</div>
       </section>`;
@@ -659,6 +662,7 @@ function renderExamQuestionPanelInner() {
 
 function renderExamQuiz() {
   const group = state.examGroup;
+  const id = state.queue[state.currentIndex];
   const total = state.queue.length;
   const pos = state.currentIndex + 1;
   const isLast = pos >= total;
@@ -692,6 +696,11 @@ function renderExamQuiz() {
   `;
 
   bindExamOptionListeners();
+
+  root.querySelector('.bm-star')?.addEventListener('click', () => {
+    toggleBookmark(id);
+    render();
+  });
 
   document.getElementById('examPrevBtn')?.addEventListener('click', () => {
     state.currentIndex--; render();
@@ -755,7 +764,9 @@ function startBookmarksPractice(certOrErg, startIndex) {
     : QUESTIONS.filter(q => CATEGORIES[q.cat].cert === certOrErg && bookmarks[q.id]).map(q => q.id);
   if (ids.length === 0) return;
 
-  state.mode = 'practice';
+  // Eigener Modus 'bookmarks': wie Üben, aber freies Blättern (auch unbeantwortet vorwärts),
+  // kein Auto-Advance, Erklärung immer sofort sichtbar, Zurück-Link führt zur Merk-Übersicht.
+  state.mode = 'bookmarks';
   state.queue = ids;
   state.currentIndex = Math.max(0, Math.min(startIndex, ids.length - 1));
   state.frontier = state.queue.length - 1; // alle Fragen sind hier von Anfang an frei erreichbar
@@ -1026,7 +1037,7 @@ function renderQuestionPanelInner() {
     : '';
 
   const explanation = (typeof EXPLANATIONS !== 'undefined') ? (EXPLANATIONS[q.id] || null) : null;
-  const hideBecauseAutoAdvancing = state.freshlyAnswered && given && given.correct;
+  const hideBecauseAutoAdvancing = state.mode !== 'bookmarks' && state.freshlyAnswered && given && given.correct;
   const explHtml = state.answered && explanation && !hideBecauseAutoAdvancing
     ? `<section class="panel explanation-panel">
         <p class="explanation-label">💡 Warum ist das richtig?</p>
@@ -1056,12 +1067,18 @@ function renderQuiz() {
   const certLabel = CATEGORIES[q.cat].cert;
   const isLast = state.currentIndex + 1 >= total;
 
+  const bm = state.mode === 'bookmarks';
   const canGoBack = state.currentIndex > 0;
+  const canGoForward = state.currentIndex + 1 < total;
   const backBtnHtml = canGoBack
     ? `<button id="prevBtn" class="btn-secondary action-back">← Zurück</button>` : '';
 
   let mainBtnHtml;
-  if (!state.answered) {
+  if (bm) {
+    // Merkliste: freies Vor-/Zurückblättern, unabhängig vom Beantwortungsstatus, kein Rundenende
+    mainBtnHtml = canGoForward
+      ? `<button id="nextBtn" class="btn-primary action-main">Weiter →</button>` : '';
+  } else if (!state.answered) {
     mainBtnHtml = `<button id="dontKnowBtn" class="btn-secondary action-main">Weiß nicht</button>`;
   } else {
     mainBtnHtml = `<button id="nextBtn" class="btn-primary action-main">${isLast ? 'Runde beenden' : 'Weiter →'}</button>`;
@@ -1070,7 +1087,7 @@ function renderQuiz() {
 
   root.innerHTML = `
     <header class="header quiz-header">
-      <button id="exitBtn" class="btn-link">&larr; Auswahl</button>
+      <button id="exitBtn" class="btn-link">${bm ? '&larr; Gemerkt' : '&larr; Auswahl'}</button>
       <span class="cert-badge cert-${certLabel.toLowerCase()}">${certLabel}</span>
       <p class="progress-text">${pos} / ${total}</p>
     </header>
@@ -1091,7 +1108,9 @@ function renderQuiz() {
 
   document.getElementById('exitBtn').addEventListener('click', () => {
     if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
-    state.screen = 'select'; render();
+    if (bm) { state.mode = 'practice'; state.screen = 'bookmarksOverview'; }
+    else { state.screen = 'select'; }
+    render();
   });
 
   root.querySelector('.bm-star')?.addEventListener('click', () => {
@@ -1100,7 +1119,7 @@ function renderQuiz() {
   });
 
   attachSwipeHandlers(document.getElementById('quizSwipeArea'), {
-    canForward: () => state.answered,
+    canForward: () => bm ? canGoForward : state.answered,
     canBackward: () => state.currentIndex > 0,
     onValidSwipe: (forward, el) => {
       if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
@@ -1126,13 +1145,14 @@ function renderQuiz() {
         answer(state.currentShuffledOptions[+btn.getAttribute('data-idx')]);
       });
     });
-    document.getElementById('dontKnowBtn').addEventListener('click', dontKnow);
-  } else {
-    document.getElementById('nextBtn')?.addEventListener('click', () => {
-      if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
-      nextQuestion();
-    });
+    if (!bm) document.getElementById('dontKnowBtn').addEventListener('click', dontKnow);
   }
+  // Weiter-Button: bei normalem Üben nur nach Beantwortung vorhanden (s.o.), im
+  // Merkliste-Modus unabhängig davon — daher hier unabhängig vom answered-Zweig binden.
+  document.getElementById('nextBtn')?.addEventListener('click', () => {
+    if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
+    nextQuestion();
+  });
   // Zurück ist unabhängig vom Beantwortungs-Status verfügbar
   document.getElementById('prevBtn')?.addEventListener('click', () => {
     if (state.autoAdvanceTimer) clearTimeout(state.autoAdvanceTimer);
@@ -1158,8 +1178,8 @@ function answer(text) {
   // Advance frontier
   if (state.currentIndex === state.frontier) state.frontier = state.currentIndex + 1;
   render();
-  // Auto-advance after 1s only on correct answer
-  if (isCorrect) {
+  // Auto-advance after 1s only on correct answer — nicht im freien Merkliste-Modus
+  if (isCorrect && state.mode !== 'bookmarks') {
     state.autoAdvanceTimer = setTimeout(() => {
       state.autoAdvanceTimer = null;
       nextQuestion();
@@ -1332,6 +1352,7 @@ function renderBookmarksOverview() {
   `;
 
   document.getElementById('bmBackBtn').addEventListener('click', () => {
+    state.mode = 'practice';
     state.screen = 'select'; render();
   });
   root.querySelectorAll('.bm-row-main').forEach(btn => {
