@@ -712,8 +712,14 @@ function showVersionMenu(cert, anchorBtn) {
   let ignoreAnchorClick = true;
   setTimeout(() => {
     function onOutside(e) {
-      if (e.target === anchorBtn && ignoreAnchorClick) { ignoreAnchorClick = false; return; }
-      if (!dd.contains(e.target)) closeVersionDropdown();
+      // anchorBtn.contains(...) statt striktem ===, da der Tab-Button jetzt verschachteltes HTML
+      // enthält (z.B. das Versions-Label als <span>) — e.target beim Loslassen kann dieses Kind-
+      // element sein, nicht der Button selbst.
+      if (anchorBtn.contains(e.target) && ignoreAnchorClick) { ignoreAnchorClick = false; return; }
+      if (!dd.contains(e.target)) {
+        document.removeEventListener('click', onOutside);
+        closeVersionDropdown();
+      }
     }
     _versionDropdownOutsideHandler = onOutside;
     document.addEventListener('click', onOutside);
@@ -1085,21 +1091,39 @@ function attachExamSegDrag(barEl) {
   if (!barEl) return;
   let dragging = false;
 
-  barEl.addEventListener('pointerdown', () => { dragging = true; });
+  barEl.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    // Pointer Capture: die Leiste ist nur 8-13px hoch, ohne das hier würde jede kleine
+    // vertikale Abweichung (nach oben/unten aus der schmalen Leiste raus) die Geste sofort
+    // beenden. Mit Capture bleiben pointermove/pointerup auch außerhalb zuverlässig an der
+    // Leiste "angedockt", bis losgelassen wird.
+    try { barEl.setPointerCapture(e.pointerId); } catch (err) { /* nicht unterstützt: kein Beinbruch */ }
+  });
 
+  // Position wie bei einem Schieberegler aus der X-Koordinate relativ zur Leiste berechnen —
+  // die Y-Position ist dabei egal, man muss also nicht exakt auf der schmalen Segment-Linie
+  // bleiben (das vorherige elementFromPoint-basierte Hit-Testing brauchte Pixel-genaues Treffen
+  // der 8-13px hohen Leiste und riss bei jeder kleinen vertikalen Mausbewegung ab).
   barEl.addEventListener('pointermove', (e) => {
     if (!dragging) return;
-    const atPoint = document.elementFromPoint(e.clientX, e.clientY);
-    const segBtn = atPoint ? atPoint.closest('.exam-seg') : null;
-    if (!segBtn) return;
-    const idx = +segBtn.getAttribute('data-jump-idx');
+    const total = state.queue.length;
+    if (!total) return;
+    const rect = barEl.getBoundingClientRect();
+    if (!rect.width) return;
+    const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    const idx = Math.min(total - 1, Math.floor(ratio * total));
     if (idx !== state.currentIndex) { state.currentIndex = idx; updateExamAfterDragJump(); }
   });
 
-  function endDrag() { dragging = false; }
+  function endDrag(e) {
+    dragging = false;
+    try { barEl.releasePointerCapture(e.pointerId); } catch (err) { /* ignorieren */ }
+  }
   barEl.addEventListener('pointerup', endDrag);
   barEl.addEventListener('pointercancel', endDrag);
-  barEl.addEventListener('pointerleave', endDrag);
+  // Mit aktivem Pointer Capture feuert pointerleave beim reinen Verlassen der Leiste nicht mehr
+  // fälschlich als Geste-Ende — als zusätzliches Sicherheitsnetz bleibt es dennoch registriert.
+  barEl.addEventListener('pointerleave', (e) => { if (!barEl.hasPointerCapture || !barEl.hasPointerCapture(e.pointerId)) endDrag(e); });
 }
 
 function bindExamOptionListeners() {
