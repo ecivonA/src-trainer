@@ -1037,6 +1037,47 @@ function renderExamQuiz() {
   });
 }
 
+// Leichtgewichtiges Update während des Streichens über die Segmentleiste: die Segment-Buttons
+// selbst werden NICHT neu aufgebaut (nur ihre Klassen aktualisiert) — sonst zerstört das volle
+// render() mitten in der Touch-Geste genau das Element, an dem Android die Touch-Erfassung hängen
+// hat, und die Wisch-Geste bricht ab (analog zum bestehenden Cert-Tab-Streich-Muster). Der Rest
+// der Seite (Fragetext, Zähler, Zurück/Weiter-Buttons) darf frei neu aufgebaut werden, da die
+// laufende Geste nur an der Segmentleiste selbst hängt.
+function updateExamAfterDragJump() {
+  const bar = document.getElementById('examSegBar');
+  if (bar) {
+    bar.querySelectorAll('.exam-seg').forEach(btn => {
+      const idx = +btn.getAttribute('data-jump-idx');
+      const answered = state.examAnswers[state.queue[idx]] !== undefined;
+      btn.className = 'exam-seg' + (idx === state.currentIndex ? ' exam-seg-current' : (answered ? ' exam-seg-answered' : ''));
+    });
+  }
+
+  const progressText = root.querySelector('.progress-text');
+  if (progressText) progressText.textContent = `${state.currentIndex + 1} / ${state.queue.length}`;
+
+  const swipeArea = document.getElementById('examSwipeArea');
+  if (swipeArea) swipeArea.innerHTML = renderExamQuestionPanelInner();
+
+  const actionsSection = root.querySelector('.quiz-actions');
+  if (actionsSection) {
+    const isLast = state.currentIndex + 1 >= state.queue.length;
+    actionsSection.innerHTML = `
+      ${state.currentIndex > 0 ? `<button id="examPrevBtn" class="btn-secondary action-back">← Zurück</button>` : ''}
+      ${isLast
+        ? `<button id="examSubmitBtn" class="btn-primary action-main">Prüfung abgeben</button>`
+        : `<button id="examNextBtn" class="btn-primary action-main">Weiter →</button>`}
+    `;
+  }
+
+  bindExamOptionListeners();
+  const id = state.queue[state.currentIndex];
+  root.querySelector('.bm-star')?.addEventListener('click', () => { toggleBookmark(id); render(); });
+  document.getElementById('examPrevBtn')?.addEventListener('click', () => { state.currentIndex--; render(); });
+  document.getElementById('examNextBtn')?.addEventListener('click', () => { state.currentIndex++; render(); });
+  document.getElementById('examSubmitBtn')?.addEventListener('click', () => confirmSubmitExam());
+}
+
 // Streichen über die Segmentleiste springt live zur jeweiligen Frage — analog zum
 // Zertifikat-Tab-Streichen. Bewusst ohne Wisch-Übergang pro Zwischenschritt (sähe bei
 // schnellem Streichen über viele Segmente ruckelig aus), stattdessen sofortiges Umschalten.
@@ -1052,7 +1093,7 @@ function attachExamSegDrag(barEl) {
     const segBtn = atPoint ? atPoint.closest('.exam-seg') : null;
     if (!segBtn) return;
     const idx = +segBtn.getAttribute('data-jump-idx');
-    if (idx !== state.currentIndex) { state.currentIndex = idx; render(); }
+    if (idx !== state.currentIndex) { state.currentIndex = idx; updateExamAfterDragJump(); }
   });
 
   function endDrag() { dragging = false; }
