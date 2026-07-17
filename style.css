@@ -73,6 +73,32 @@ html, body {
   transition: width 0.2s ease;
 }
 
+/* ── Segmentierte Fortschrittsleiste im Prüfungsmodus (antippbar, springt zur Frage) ──── */
+.exam-seg-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 4px 0 6px;
+  touch-action: pan-y; /* horizontales Streichen frei für den Sprung-Scrub, vertikal weiter scrollbar */
+  user-select: none;
+  -webkit-user-select: none;
+}
+.exam-seg {
+  flex: 1;
+  min-width: 3px;
+  height: 8px;
+  border: none;
+  border-radius: 2px;
+  background: var(--border);
+  padding: 0;
+  cursor: pointer;
+}
+.exam-seg-answered { background: var(--accent); }
+.exam-seg-current {
+  height: 13px;
+  background: var(--navy);
+}
+
 .panel {
   background: var(--card);
   border-radius: var(--radius);
@@ -302,6 +328,9 @@ button {
   font-size: 15px;
   font-weight: 600;
   color: var(--muted);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none; /* verhindert Textauswahl/Lupe beim langen Drücken (Android) */
 }
 
 .cert-tab.active {

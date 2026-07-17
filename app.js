@@ -103,6 +103,23 @@ function applyOnlyNewFilter(qs) {
   return qs.filter(q => !onlyNewActiveFor(certOfId(q.id)) || isNewContentId(q.id));
 }
 
+// Zuletzt gewählter Zertifikat-Tab + Üben/Prüfen-Modus: übersteht Neustart bzw. versehentliches
+// Aktualisieren (z.B. Pull-to-refresh). Wird bei jedem Aufruf von renderSelect() aktuell gehalten,
+// nicht bei jeder einzelnen internen mode-Änderung (Prüfungsablauf etc.) — so landet immer genau
+// das gespeichert, was gerade tatsächlich auf dem Auswahlbildschirm zu sehen ist/war.
+const SELECT_SCREEN_KEY = 'src_trainer_select_screen_v1';
+function loadSelectScreenPrefs() {
+  try {
+    const raw = localStorage.getItem(SELECT_SCREEN_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) { return {}; }
+}
+function saveSelectScreenPrefs() {
+  try {
+    localStorage.setItem(SELECT_SCREEN_KEY, JSON.stringify({ certFilter: state.certFilter, mode: state.mode }));
+  } catch (e) {}
+}
+
 function certOfId(id) { return id.split('-')[0]; }
 
 function activeVersion(cert) {
@@ -287,15 +304,17 @@ function statsFor(catKeys) {
 }
 
 /* ---------- App State ---------- */
+const CERT_TAB_ORDER = ['SRC', 'LRC', 'UBI', '+UBI', 'ALL'];
+const _savedSelectScreen = loadSelectScreenPrefs();
 const state = {
   screen: 'select',       // 'select' | 'quiz' | 'summary' | 'examSummary' | 'bookmarksOverview'
   bookmarksOverviewCert: null, // 'SRC' | 'LRC' | 'UBI' | 'UBI_ERG' — welche Gemerkt-Liste gerade offen ist
-  mode: 'practice',       // 'practice' | 'exam'
-  certFilter: 'SRC',      // 'SRC' | 'LRC' | 'UBI' | '+UBI' | 'ALL'
+  mode: _savedSelectScreen.mode === 'exam' ? 'exam' : 'practice', // 'practice' | 'exam' — zuletzt gewählt, persistiert
+  certFilter: CERT_TAB_ORDER.includes(_savedSelectScreen.certFilter) ? _savedSelectScreen.certFilter : 'SRC', // zuletzt gewählt, persistiert
   catalogVersion: loadCatalogVersion(), // { SRC: '2018', LRC: '2018', UBI: '2018' } — persistiert
   onlyNewContent: loadOnlyNewContent(), // { UBI: true, ... } — "nurDiff"/"2026neu", persistiert
   _suppressTabClick: false, // wird nach einem Long-Press auf einen Cert-Tab kurz gesetzt
-  selectedCats: certCats('SRC'),
+  selectedCats: selectedCatsForCertFilter(CERT_TAB_ORDER.includes(_savedSelectScreen.certFilter) ? _savedSelectScreen.certFilter : 'SRC'),
   filterMode: 'unsicher', // 'unsicher' | 'alle'
   queue: [],
   currentIndex: 0,
@@ -332,7 +351,6 @@ function render() {
 }
 
 /* ---------- SELECT ---------- */
-const CERT_TAB_ORDER = ['SRC', 'LRC', 'UBI', '+UBI', 'ALL'];
 
 // Welches Katalog-Zertifikat steckt hinter einem Tab? (+UBI teilt sich Katalog/Version mit UBI;
 // "ALL" hat keine einzelne Version, dort also kein Umschalter.)
@@ -350,7 +368,10 @@ function certTabVersionLabel(tabKey) {
   if (!cfg || cfg.versions.length < 2) return '';
   const v = activeVersion(cert);
   const base = cfg.labels[v] || v;
-  return `<span class="cert-tab-version">${escapeHtml(onlyNewActiveFor(cert) ? base + 'neu' : base)}</span>`;
+  // "neu"-Zusatz nur im Übungsmodus zeigen — nurDiff gilt im Prüfmodus nicht, auch wenn die
+  // Einstellung im Hintergrund für den nächsten Übungsbesuch erhalten bleibt.
+  const showNeu = state.mode === 'practice' && onlyNewActiveFor(cert);
+  return `<span class="cert-tab-version">${escapeHtml(showNeu ? base + 'neu' : base)}</span>`;
 }
 
 function selectedCatsForCertFilter(filter) {
@@ -406,7 +427,7 @@ function certContentHtml() {
       const half = qs.filter(id => getEntry(id).streak === 1).length;
       const pctMastered = Math.round(mastered / qs.length * 100);
       const pctSeen = Math.round((mastered + half) / qs.length * 100);
-      const resultKey = `${group}-${bogen.n}`;
+      const resultKey = examResultKeyFor(group, bogen.n);
       const result = examResults[resultKey];
       const passedClass = result && result.passed ? 'exam-row-passed' : '';
       return `
@@ -628,9 +649,15 @@ function attachCertTabDragPreview(barEl) {
   barEl.addEventListener('pointerleave', endDrag);
 }
 
+let _versionDropdownOutsideHandler = null;
+
 function closeVersionDropdown() {
   const dd = document.getElementById('versionDropdown');
   if (dd) dd.remove();
+  if (_versionDropdownOutsideHandler) {
+    document.removeEventListener('click', _versionDropdownOutsideHandler);
+    _versionDropdownOutsideHandler = null;
+  }
 }
 
 function showVersionMenu(cert, anchorBtn) {
@@ -679,12 +706,17 @@ function showVersionMenu(cert, anchorBtn) {
     });
   });
 
-  // Klick irgendwo außerhalb schließt das Dropdown wieder (erst im nächsten Tick registrieren,
-  // sonst schließt der gerade auslösende Klick/Touch es sofort wieder).
+  // Klick irgendwo außerhalb schließt das Dropdown wieder. Das Mouseup/Click-Ereignis, das den
+  // Long-Press selbst beendet (Ziel = derselbe Tab-Button), wird dabei einmalig ignoriert — sonst
+  // klappt das Dropdown am Desktop sofort wieder zu, sobald man die Maustaste loslässt.
+  let ignoreAnchorClick = true;
   setTimeout(() => {
-    document.addEventListener('click', function onOutside(e) {
+    function onOutside(e) {
+      if (e.target === anchorBtn && ignoreAnchorClick) { ignoreAnchorClick = false; return; }
       if (!dd.contains(e.target)) closeVersionDropdown();
-    }, { once: true });
+    }
+    _versionDropdownOutsideHandler = onOutside;
+    document.addEventListener('click', onOutside);
   }, 0);
 }
 
@@ -720,6 +752,7 @@ function attachCertTabLongPress(barEl) {
 }
 
 function renderSelect() {
+  saveSelectScreenPrefs(); // hält "zuletzt gewählter Tab/Modus" aktuell, übersteht Neustart/Pull-to-refresh
   const srcCats = certCats('SRC');
   const lrcCats = certCats('LRC');
   const ubiCats = certCats('UBI');
@@ -800,6 +833,23 @@ function renderSelect() {
 }
 
 /* ---------- Prüfungssimulation ---------- */
+// Prüfergebnis-Speicher-Key: Bögen ohne inhaltlich neue Fragen bleiben versionsübergreifend
+// geteilt (Bogen-Zusammenstellung ändert sich ja nachweislich nicht), enthält ein Bogen aber
+// mindestens eine inhaltlich neue Frage, bekommt er unter der Nicht-Standardversion ein eigenes,
+// getrenntes Ergebnis — sonst würde ein unter 2018 bestandener Bogen fälschlich auch für 2026
+// als "erledigt" gelten, obwohl der Inhalt teils ein anderer ist.
+function examResultKeyFor(group, n) {
+  const cert = group === 'UBI_ERG' ? 'UBI' : group;
+  const cfg = CATALOG_VERSIONS[cert];
+  const base = `${group}-${n}`;
+  if (!cfg || cfg.versions.length < 2) return base;
+  const v = activeVersion(cert);
+  if (v === cfg.default) return base;
+  const bogen = EXAMS[group].find(b => b.n === n);
+  const hasNewContent = bogen && bogen.qs.some(id => isNewContentId(id));
+  return hasNewContent ? `${base}@${v}` : base;
+}
+
 function startExam(group, n) {
   const bogen = EXAMS[group].find(b => b.n === n);
   if (!bogen) return;
@@ -864,7 +914,7 @@ function submitExam(timedOut) {
   const passed = wrongCount <= meta.maxWrong;
   const elapsedSec = Math.min(meta.time * 60, Math.round((Date.now() - state.examStartedAt) / 1000));
 
-  examResults[`${group}-${n}`] = {
+  examResults[examResultKeyFor(group, n)] = {
     passed, correct: correctCount, wrong: wrongCount, at: new Date().toISOString(),
   };
   saveExamResults(examResults);
@@ -915,7 +965,13 @@ function renderExamQuiz() {
       <span class="cert-badge cert-${label.toLowerCase().replace('+','')}">${label} · Bogen ${state.examBogenN}</span>
       <p class="progress-text">${pos} / ${total}</p>
     </header>
-    <div class="progress-bar"><div class="progress-bar-fill" style="width:${(pos-1)/total*100}%"></div></div>
+    <div class="exam-seg-bar" id="examSegBar">
+      ${state.queue.map((qid, i) => {
+        const answered = state.examAnswers[qid] !== undefined;
+        const cls = i === state.currentIndex ? 'exam-seg-current' : (answered ? 'exam-seg-answered' : '');
+        return `<button class="exam-seg ${cls}" data-jump-idx="${i}" aria-label="Frage ${i + 1}"></button>`;
+      }).join('')}
+    </div>
 
     <div class="exam-timer-row">
       <span class="exam-timer">⏱ <span id="examTimerDisplay">${formatExamTime(remaining)}</span></span>
@@ -940,6 +996,14 @@ function renderExamQuiz() {
     toggleBookmark(id);
     render();
   });
+
+  root.querySelectorAll('.exam-seg').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.currentIndex = +btn.getAttribute('data-jump-idx');
+      render();
+    });
+  });
+  attachExamSegDrag(document.getElementById('examSegBar'));
 
   document.getElementById('examPrevBtn')?.addEventListener('click', () => {
     state.currentIndex--; render();
@@ -971,6 +1035,30 @@ function renderExamQuiz() {
       }, renderExamQuestionPanelInner);
     },
   });
+}
+
+// Streichen über die Segmentleiste springt live zur jeweiligen Frage — analog zum
+// Zertifikat-Tab-Streichen. Bewusst ohne Wisch-Übergang pro Zwischenschritt (sähe bei
+// schnellem Streichen über viele Segmente ruckelig aus), stattdessen sofortiges Umschalten.
+function attachExamSegDrag(barEl) {
+  if (!barEl) return;
+  let dragging = false;
+
+  barEl.addEventListener('pointerdown', () => { dragging = true; });
+
+  barEl.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const atPoint = document.elementFromPoint(e.clientX, e.clientY);
+    const segBtn = atPoint ? atPoint.closest('.exam-seg') : null;
+    if (!segBtn) return;
+    const idx = +segBtn.getAttribute('data-jump-idx');
+    if (idx !== state.currentIndex) { state.currentIndex = idx; render(); }
+  });
+
+  function endDrag() { dragging = false; }
+  barEl.addEventListener('pointerup', endDrag);
+  barEl.addEventListener('pointercancel', endDrag);
+  barEl.addEventListener('pointerleave', endDrag);
 }
 
 function bindExamOptionListeners() {
@@ -1337,7 +1425,7 @@ function renderQuiz() {
       <span class="cert-badge cert-${certLabel.toLowerCase()}">${certLabel}</span>
       <p class="progress-text">${pos} / ${total}</p>
     </header>
-    <div class="progress-bar"><div class="progress-bar-fill" style="width:${(pos-1)/total*100}%"></div></div>
+    <div class="progress-bar"><div class="progress-bar-fill" style="width:${pos/total*100}%"></div></div>
 
     <div id="quizSwipeViewport" class="quiz-swipe-viewport">
       <div id="quizSwipeArea" class="quiz-swipe-area">${renderQuestionPanelInner()}</div>
