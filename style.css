@@ -227,6 +227,36 @@ button {
   padding: 4px 0;
 }
 
+.app-info-link {
+  text-align: center;
+  margin: 4px 0 0;
+}
+.app-info-link .btn-link {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.info-text {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text);
+  margin: 0 0 10px;
+}
+.info-text:last-child { margin-bottom: 0; }
+.info-list {
+  margin: 0 0 10px;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+}
+.info-small {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--muted);
+  margin: 0;
+}
+
 .btn-danger-link {
   background: none;
   border: none;

@@ -1,5 +1,10 @@
 'use strict';
 
+// Bei jeder Änderung an app.js/data.js/exams.js/explanations.js/catalog_versions.js/sw.js
+// zusammen mit der CACHE_NAME-Version in sw.js erhöhen (siehe README) — beide Werte sollten
+// synchron bleiben, damit die Info-Anzeige in der App zum tatsächlich ausgelieferten Stand passt.
+const APP_VERSION = 'v23';
+
 /* ---------- Persistenz ---------- */
 const STORAGE_KEY_OLD = 'src_trainer_progress_v2'; // numerische IDs (bis v13)
 const STORAGE_KEY = 'src_trainer_progress_v3';     // String-IDs ("SRC-042" usw., ab v14)
@@ -348,6 +353,7 @@ function render() {
   else if (state.screen === 'summary') renderSummary();
   else if (state.screen === 'examSummary') renderExamSummary();
   else if (state.screen === 'bookmarksOverview') renderBookmarksOverview();
+  else if (state.screen === 'info') renderInfo();
 }
 
 /* ---------- SELECT ---------- */
@@ -799,6 +805,8 @@ function renderSelect() {
     <div id="certSwipeViewport" class="quiz-swipe-viewport">
       <div id="certSwipeArea" class="quiz-swipe-area">${certContentHtml()}</div>
     </div>
+
+    <p class="app-info-link"><button id="infoBtn" class="btn-link">ℹ️ Info &amp; Über die App · ${APP_VERSION}</button></p>
   `;
 
   // Zertifikat-Tabs: normaler Klick wählt direkt
@@ -812,6 +820,11 @@ function renderSelect() {
   attachCertTabDragPreview(document.getElementById('certTabsBar'));
   // ...und langes Drücken öffnet den Versions-Umschalter (2018/2026/2026neu), aktuell nur UBI/+UBI
   attachCertTabLongPress(document.getElementById('certTabsBar'));
+
+  document.getElementById('infoBtn').addEventListener('click', () => {
+    state.screen = 'info';
+    render();
+  });
 
   bindCertContentListeners();
 
@@ -1024,7 +1037,7 @@ function renderExamQuiz() {
       'Prüfung wirklich abbrechen? Der Fortschritt in dieser Prüfungssimulation geht verloren.',
       () => {
         if (state.examTimerInterval) { clearInterval(state.examTimerInterval); state.examTimerInterval = null; }
-        state.mode = 'practice';
+        state.mode = 'exam';
         state.screen = 'select';
         render();
       },
@@ -1767,6 +1780,75 @@ function renderBookmarksOverview() {
       toggleBookmark(btn.getAttribute('data-unmark-id'));
       render(); // Liste neu aufbauen, entfernte Frage verschwindet direkt
     });
+  });
+}
+
+/* ---------- Info & Über die App ---------- */
+function renderInfo() {
+  root.innerHTML = `
+    <header class="header">
+      <button id="infoBackBtn" class="btn-link">&larr; Auswahl</button>
+      <h1>Info &amp; Über die App</h1>
+      <p class="sub">Funkzeugnis Trainer · ${APP_VERSION}</p>
+    </header>
+
+    <section class="panel">
+      <h2>Was ist das</h2>
+      <p class="info-text">
+        Lerntrainer für die Fragenkataloge der deutschen Seefunk-/Binnenschifffahrtsfunk-Zeugnisse
+        SRC, LRC, UBI und die Ergänzungsprüfung +UBI — alle 386 Fragen im amtlichen Wortlaut,
+        Übungs- und Prüfungsmodus.
+      </p>
+    </section>
+
+    <section class="panel">
+      <h2>Funktionen</h2>
+      <ul class="info-list">
+        <li>Übungsmodus mit Streak-Fortschritt je Frage und handgeschriebenen Erklärungen</li>
+        <li>Prüfungsmodus mit allen 48 offiziellen Prüfbögen, Timer und Auswertung</li>
+        <li>Merker: einzelne Fragen markieren und gezielt wiederholen</li>
+        <li>UBI: Umschalter zwischen dem Katalog 2018 und dem neuen Katalog ab 1.10.2026,
+          inkl. „nur die neuen Fragen"-Filter</li>
+        <li>Als PWA installierbar, funktioniert offline</li>
+      </ul>
+    </section>
+
+    <section class="panel">
+      <h2>Deine Daten</h2>
+      <p class="info-text">
+        Der gesamte Fortschritt (Streaks, Prüfungsergebnisse, Merkliste, gewählte Katalogversion)
+        wird ausschließlich lokal auf diesem Gerät gespeichert (Browser-Speicher). Es gibt keinen
+        Server, an den etwas übertragen wird.
+      </p>
+    </section>
+
+    <section class="panel">
+      <h2>Quellen &amp; Lizenzhinweis</h2>
+      <p class="info-text">
+        Die Fragenkataloge stammen direkt aus den amtlichen Verkehrsblatt-Bekanntmachungen
+        (SRC/LRC: VkBl. 2009/145, geändert 2010/85 und 2018/109; UBI: VkBl. 2011/117, geändert
+        2018/102; neuer UBI-Katalog ab 1.10.2026 aus dem entsprechenden Verkehrsblatt). Amtliche
+        Bekanntmachungen wie diese sind nach § 5 UrhG nicht urheberrechtlich geschützt.
+      </p>
+      <p class="info-small">
+        Für die private Nutzung zum Lernen vorgesehen, keine Gewähr auf Vollständigkeit oder
+        Aktualität. Bei Widersprüchen zur aktuell gültigen amtlichen Prüfungsordnung gilt
+        selbstverständlich immer Letztere.
+      </p>
+    </section>
+
+    <section class="panel">
+      <h2>Mehr</h2>
+      <p class="info-text">
+        Live unter <a href="https://ecivona.github.io/src-trainer/" class="btn-link" style="display:inline">ecivona.github.io/src-trainer</a>.
+        Ausführlichere technische Doku im README des Projekts.
+      </p>
+    </section>
+  `;
+
+  document.getElementById('infoBackBtn').addEventListener('click', () => {
+    state.screen = 'select';
+    render();
   });
 }
 
