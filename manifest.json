@@ -1,10 +1,13 @@
 {
-  "name": "SRC Funkzeugnis Trainer",
-  "short_name": "SRC Trainer",
-  "description": "Lerntrainer für den Fragenkatalog zum Short Range Certificate (SRC)",
+  "name": "Funkzeugnis Trainer",
+  "short_name": "Funkzeugnis",
+  "description": "Lerntrainer für die Fragenkataloge zu SRC, LRC, UBI und der Ergänzungsprüfung +UBI (See-/Binnenschifffahrtsfunk)",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
+  "orientation": "portrait-primary",
+  "lang": "de",
+  "categories": ["education", "utilities"],
   "background_color": "#f4f7fa",
   "theme_color": "#0b3d66",
   "icons": [
