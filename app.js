@@ -3,7 +3,7 @@
 // Bei jeder Änderung an app.js/data.js/exams.js/explanations.js/catalog_versions.js/sw.js
 // zusammen mit der CACHE_NAME-Version in sw.js erhöhen (siehe README) — beide Werte sollten
 // synchron bleiben, damit die Info-Anzeige in der App zum tatsächlich ausgelieferten Stand passt.
-const APP_VERSION = 'v23';
+const APP_VERSION = 'v24';
 
 /* ---------- Persistenz ---------- */
 const STORAGE_KEY_OLD = 'src_trainer_progress_v2'; // numerische IDs (bis v13)
@@ -1164,9 +1164,12 @@ function confirmSubmitExam() {
 // So kann man von der Übersicht aus gezielt zu einer bestimmten Frage springen und
 // trotzdem ganz normal weiter vor/zurück blättern.
 function startBookmarksPractice(certOrErg, startIndex) {
-  const ids = certOrErg === 'UBI_ERG'
+  const allIds = certOrErg === 'UBI_ERG'
     ? QUESTIONS.filter(q => q.e === 1 && bookmarks[q.id]).map(q => q.id)
     : QUESTIONS.filter(q => CATEGORIES[q.cat].cert === certOrErg && bookmarks[q.id]).map(q => q.id);
+  // Dieselbe Filterung wie in renderBookmarksOverview (nurDiff) — sonst würde startIndex, der
+  // sich auf die dort angezeigte (ggf. gefilterte) Liste bezieht, auf die falsche Frage zeigen.
+  const ids = applyOnlyNewFilter(allIds.map(id => ({ id }))).map(x => x.id);
   if (ids.length === 0) return;
 
   // Eigener Modus 'bookmarks': wie Üben, aber freies Blättern (auch unbeantwortet vorwärts),
@@ -1736,9 +1739,12 @@ function renderExamSummary() {
 function renderBookmarksOverview() {
   const certOrErg = state.bookmarksOverviewCert;
   const label = certOrErg === 'UBI_ERG' ? '+UBI' : certOrErg;
-  const ids = certOrErg === 'UBI_ERG'
+  const allIds = certOrErg === 'UBI_ERG'
     ? QUESTIONS.filter(q => q.e === 1 && bookmarks[q.id]).map(q => q.id)
     : QUESTIONS.filter(q => CATEGORIES[q.cat].cert === certOrErg && bookmarks[q.id]).map(q => q.id);
+  // Konsistent zu den Themen-Kategorien: bei aktivem "2026neu" auch hier nur die inhaltlich
+  // neuen Fragen zeigen (sonst tauchen alte, unter 2018 gemerkte Fragen im nurDiff-Blick auf).
+  const ids = applyOnlyNewFilter(allIds.map(id => ({ id }))).map(x => x.id);
 
   const rows = ids.map((id, idx) => {
     const q = resolveQuestion(QUESTIONS.find(x => x.id === id));
