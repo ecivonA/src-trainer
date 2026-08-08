@@ -1,9 +1,15 @@
 'use strict';
 
-// Bei jeder Änderung an app.js/data.js/exams.js/explanations.js/catalog_versions.js/sw.js
-// zusammen mit der CACHE_NAME-Version in sw.js erhöhen (siehe README) — beide Werte sollten
-// synchron bleiben, damit die Info-Anzeige in der App zum tatsächlich ausgelieferten Stand passt.
-const APP_VERSION = 'v24';
+// Bei jeder Änderung an app.js/data-loader.js/data.json/exams.json/explanations.json/
+// catalog_versions.json/sw.js zusammen mit der CACHE_NAME-Version in sw.js erhöhen (siehe
+// README) — beide Werte sollten synchron bleiben, damit die Info-Anzeige in der App zum
+// tatsächlich ausgelieferten Stand passt.
+// HINWEIS: CATEGORIES/QUESTIONS/EXAM_META/EXAMS/EXPLANATIONS/CATALOG_VERSIONS werden seit
+// v25 nicht mehr per <script src="data.js"> etc. geladen, sondern von data-loader.js per
+// fetch() aus den .json-Dateien geholt und als globale Variablen gesetzt, BEVOR dieses
+// Script (app.js) überhaupt in die Seite eingehängt wird. Für den Code hier unten ändert
+// sich dadurch nichts - die Variablen sind zum Zeitpunkt der Ausführung längst befüllt.
+const APP_VERSION = 'v25';
 
 /* ---------- Persistenz ---------- */
 const STORAGE_KEY_OLD = 'src_trainer_progress_v2'; // numerische IDs (bis v13)

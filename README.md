@@ -51,17 +51,24 @@ Live unter <https://ecivona.github.io/src-trainer/>
 
 ## Technik
 
-Reines HTML/CSS/JS, kein Framework.
+Reines HTML/CSS/JS, kein Framework. Die Fragendaten liegen als reine JSON-Dateien vor
+und werden zur Laufzeit per `fetch()` geladen (nicht mehr per `<script>`-Tag).
 
 | Datei | Inhalt |
 |---|---|
-| `index.html` | Grundgerüst, bindet die Scripts ein |
-| `data.js` | Alle 386 Fragen (`CATEGORIES`, `QUESTIONS`) |
-| `exams.js` | Die 48 Prüfbögen (`EXAM_META`, `EXAMS`) |
-| `explanations.js` | Erklärungstexte je Frage |
-| `app.js` | Gesamte Anwendungslogik |
+| `index.html` | Grundgerüst, bindet `data-loader.js` ein |
+| `data-loader.js` | Lädt die JSON-Dateien per `fetch()`, hängt danach `app.js` in die Seite ein |
+| `data.json` | Alle 386 Fragen (`CATEGORIES`, `QUESTIONS`) |
+| `exams.json` | Die 48 Prüfbögen (`EXAM_META`, `EXAMS`) |
+| `explanations.json` | Erklärungstexte je Frage |
+| `catalog_versions.json` | UBI-Katalogversionen 2018/2026 (`CATALOG_VERSIONS`) |
+| `app.js` | Gesamte Anwendungslogik (erwartet `CATEGORIES`/`QUESTIONS`/`EXAM_META`/`EXAMS`/`EXPLANATIONS`/`CATALOG_VERSIONS` als bereits geladene globale Variablen) |
 | `style.css` | Styling |
 | `sw.js` / `manifest.json` | PWA-Konfiguration |
+
+`js-to-json.js` (Node-Skript, nicht Teil der ausgelieferten App) wurde einmalig genutzt,
+um die früheren `data.js`/`exams.js`/`explanations.js`/`catalog_versions.js` verlustfrei
+in die heutigen `.json`-Dateien umzuwandeln.
 
 ### Fragen-ID-Format
 
@@ -72,23 +79,25 @@ ganz normale UBI-Fragen (keine eigene Nummerierung, da es keinen separaten
 offiziellen +UBI-Fragenkatalog gibt – nur Prüfbögen, deren Fragen aus dem
 UBI-Katalog stammen).
 
-```js
-{ id: "UBI-045", cat: 'UBI_I', n: 45,
-  q: 'Fragetext', o: ['Korrekte Antwort', 'Falsch 1', 'Falsch 2', 'Falsch 3'] }
+```json
+{ "id": "UBI-045", "cat": "UBI_I", "n": 45,
+  "q": "Fragetext", "o": ["Korrekte Antwort", "Falsch 1", "Falsch 2", "Falsch 3"] }
 ```
 
 `o[0]` muss immer die korrekte Antwort sein – die App mischt die Reihenfolge
 bei der Anzeige selbst. `e: 1` kennzeichnet die 79 UBI-Fragen, die auch Teil
 der +UBI-Ergänzungsprüfung sind.
 
-### Prüfbogen-Format (`exams.js`)
+### Prüfbogen-Format (`exams.json`)
 
-```js
-const EXAM_META = { SRC: { time: 30, maxWrong: 5, count: 24 }, ... };
-const EXAMS = {
-  SRC: [ { n: 1, qs: ["SRC-001", "SRC-005", "SRC-022", ...] }, ... ],
-  LRC: [...], UBI: [...], UBI_ERG: [...],
-};
+```json
+{
+  "EXAM_META": { "SRC": { "time": 30, "maxWrong": 5, "count": 24 }, "...": "..." },
+  "EXAMS": {
+    "SRC": [ { "n": 1, "qs": ["SRC-001", "SRC-005", "SRC-022", "..."] } ],
+    "LRC": [], "UBI": [], "UBI_ERG": []
+  }
+}
 ```
 
 Zeit und Fehlergrenze gelten einheitlich pro Zertifikat (`EXAM_META`) und
@@ -120,9 +129,10 @@ python3 -m http.server 8000
 4. Auf dem Smartphone die URL öffnen und über "Zum Startbildschirm
    hinzufügen" (iOS Safari) bzw. das Installations-Banner (Android Chrome)
    installieren.
-5. Nach jeder Änderung an `app.js`/`data.js`/`exams.js`/`explanations.js`/
-   `sw.js` die `CACHE_NAME`-Version in `sw.js` erhöhen, sonst liefert der
-   Service Worker Nutzer:innen weiterhin die alte, gecachte Version aus.
+5. Nach jeder Änderung an `app.js`/`data-loader.js`/`data.json`/`exams.json`/
+   `explanations.json`/`catalog_versions.json`/`sw.js` die `CACHE_NAME`-Version
+   in `sw.js` erhöhen, sonst liefert der Service Worker Nutzer:innen weiterhin
+   die alte, gecachte Version aus.
 
 Alle Pfade in `manifest.json` und `sw.js` sind relativ gehalten, daher
 funktioniert das Deployment sowohl im Repo-Root als auch in einem
